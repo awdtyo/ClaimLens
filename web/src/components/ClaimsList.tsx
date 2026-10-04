@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ClaimRow, ClaimFilter, ClaimSortKey } from "../lib/claims";
 import { filterClaimRows, sortClaimRows } from "../lib/claims";
+import { shortReason } from "../lib/findings";
 import { VERDICT_ORDER } from "../lib/verdict";
 import { formatValue } from "../lib/format";
 import { Chip, EmptyState } from "./ui";
@@ -135,6 +136,14 @@ export default function ClaimsList({ rows, selectedId, onSelect }: ClaimsListPro
                       <VerdictBadge status={row.verdict.status} />
                     ) : (
                       <Chip>verdict pending</Chip>
+                    )}
+                    {row.verdict?.reason && row.bucket === "untestable" && (
+                      <Chip
+                        title={row.verdict.reason}
+                        aria-label={`Untestable reason: ${row.verdict.reason}`}
+                      >
+                        {shortReason(row.verdict.reason, 60)}
+                      </Chip>
                     )}
                     {scaled && row.scaleFactor != null && (
                       <Chip aria-label={`Scaled run, scale factor ${row.scaleFactor}`}>

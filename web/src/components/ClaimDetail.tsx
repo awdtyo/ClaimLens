@@ -4,7 +4,8 @@ import type { Assumption, AssumptionEffect } from "../api/models";
 import type { ClaimRow } from "../lib/claims";
 import { formatValue } from "../lib/format";
 import { cn } from "../lib/utils";
-import CodeTab from "./CodeTab";
+import CodeTab, { type HighlightRequest } from "./CodeTab";
+import FindingsList from "./FindingsList";
 import { Button, Chip } from "./ui";
 import VerdictBadge from "./VerdictBadge";
 
@@ -128,7 +129,10 @@ export default function ClaimDetail({
   runFailed,
 }: ClaimDetailProps) {
   const { claim, verdict } = row;
-  const [tab, setTab] = useState<"details" | "code">("details");
+  const [tab, setTab] = useState<"details" | "code" | "findings">("details");
+  const [highlightRequest, setHighlightRequest] = useState<HighlightRequest | null>(null);
+  const findings = verdict?.code_findings ?? [];
+  const reason = verdict?.reason ?? null;
   const reported = claim.reported_value ?? null;
   const measured = row.measured;
   const delta =
@@ -154,10 +158,13 @@ export default function ClaimDetail({
         onKeyDown={(e) => {
           if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
           e.preventDefault();
-          setTab((t) => (t === "details" ? "code" : "details"));
+          const order = ["details", "code", "findings"] as const;
+          const i = order.indexOf(tab);
+          const next = e.key === "ArrowRight" ? (i + 1) % order.length : (i - 1 + order.length) % order.length;
+          setTab(order[next]);
         }}
       >
-        {(["details", "code"] as const).map((t) => (
+        {(["details", "code", "findings"] as const).map((t) => (
           <button
             key={t}
             role="tab"
@@ -173,7 +180,7 @@ export default function ClaimDetail({
                 : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800/50",
             )}
           >
-            {t === "details" ? "Details" : "Code"}
+            {t === "details" ? "Details" : t === "code" ? "Code" : `Findings (${findings.length})`}
           </button>
         ))}
       </div>
@@ -217,6 +224,12 @@ export default function ClaimDetail({
         <div className="flex flex-col gap-1">
           <h4 className="text-sm font-medium">Why this verdict</h4>
           <p className="text-sm text-gray-700 dark:text-gray-300">{verdict.rationale}</p>
+          {reason && (
+            <p className="rounded-md bg-gray-100 px-2 py-1 text-sm text-gray-700 ring-1 ring-inset ring-gray-500/20 dark:bg-gray-800 dark:text-gray-300">
+              <span className="font-medium">Untestable reason: </span>
+              {reason}
+            </p>
+          )}
         </div>
       )}
 
@@ -278,7 +291,7 @@ export default function ClaimDetail({
         </div>
       )}
       </div>
-      ) : (
+      ) : tab === "code" ? (
         <div id={`claim-${claim.id}-panel-code`} role="tabpanel" aria-labelledby={`claim-${claim.id}-tab-code`}>
           <CodeTab
             runId={runId}
@@ -288,6 +301,20 @@ export default function ClaimDetail({
             treeError={treeError ?? false}
             onRetryTree={onRetryTree ?? (() => {})}
             runFailed={runFailed ?? false}
+            highlightRequest={highlightRequest}
+            onHighlightConsumed={() => setHighlightRequest(null)}
+          />
+        </div>
+      ) : (
+        <div id={`claim-${claim.id}-panel-findings`} role="tabpanel" aria-labelledby={`claim-${claim.id}-tab-findings`}>
+          <FindingsList
+            findings={findings}
+            verdictStatus={verdict?.status ?? "no verdict yet"}
+            onOpenFile={(file, line) => {
+              const base = file.split("/").filter(Boolean).pop() ?? file;
+              setHighlightRequest({ file: base, line });
+              setTab("code");
+            }}
           />
         </div>
       )}

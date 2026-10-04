@@ -43,6 +43,15 @@ export interface Evidence {
   scale_factor: number;
 }
 
+export interface CodeFinding {
+  rule: string;
+  severity: "blocking" | "warning" | "info";
+  file: string;
+  line?: number | null;
+  message: string;
+  advisory: boolean;
+}
+
 export interface Verdict {
   claim_id: string;
   status: string;
@@ -50,6 +59,8 @@ export interface Verdict {
   evidence_ids: string[];
   scaled: boolean;
   assumption_effects: AssumptionEffect[];
+  reason?: string | null;
+  code_findings?: CodeFinding[];
 }
 
 export type TableRow = string[];

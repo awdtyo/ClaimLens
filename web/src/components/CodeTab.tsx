@@ -87,10 +87,11 @@ export default function CodeTab({
   // Jump to a file+line requested from outside (finding link).
   useEffect(() => {
     if (!highlightRequest || iterations.length === 0) return;
+    const wanted = highlightRequest.file.split("/").filter(Boolean).pop() ?? highlightRequest.file;
     let targetIter = iteration;
     let targetIt = activeIter;
     for (const it of iterations) {
-      const idx = it.files.findIndex((f) => f.name === highlightRequest.file);
+      const idx = it.files.findIndex((f) => f.name === highlightRequest.file || f.name === wanted);
       if (idx >= 0) {
         targetIter = it.iteration;
         targetIt = it;
