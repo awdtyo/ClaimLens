@@ -323,6 +323,27 @@ def test_agent_finishes_through_report_result_tool(tmp_path: Path) -> None:
     assert (Path(run.run_dir) / "code" / "c1" / "iter_1" / "exp.py").exists()
 
 
+def test_writes_are_snapshotted_even_without_a_run(tmp_path: Path) -> None:
+    """Capped runs that only wrote files still preserve their code."""
+    run = make_run_context("agent-writeonly", runs_root=tmp_path / "runs")
+    llm = ScriptedLLM(
+        [
+            {
+                "tool_calls": [
+                    {"name": "write_file", "arguments": {"path": "exp.py", "content": "print(1)"}}
+                ]
+            }
+        ]
+        * 3
+    )
+    evidence = agent_mod.run_agent_for_claim(
+        "c1", _item(), run, llm=llm, run_fn=_failing_run, max_iterations=2
+    )
+    assert evidence.measured_value is None
+    assert evidence.iterations == 0
+    assert (Path(run.run_dir) / "code" / "c1" / "iter_1" / "exp.py").exists()
+
+
 def test_code_written_events_carry_names_not_contents(tmp_path: Path) -> None:
     run = make_run_context("agent-code-events", runs_root=tmp_path / "runs")
     llm = ScriptedLLM(

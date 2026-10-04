@@ -47,6 +47,9 @@ SYSTEM_PROMPT = (
     "Your FIRST action must be write_file with the complete experiment "
     "script. Never call install_package for numpy; call it at most once "
     "total, and only for anything else. "
+    "Call run_in_sandbox no later than your SECOND turn: a failing run "
+    "teaches more than a perfect file. Never rewrite the same file twice "
+    "without running it in between. "
     "Keep each file under 60 lines of complete, runnable code. "
     "Needed PyPI packages go through install_package. "
     "When a run prints the final number, call report_result with "
@@ -274,6 +277,9 @@ def run_agent_for_claim(
                     # File name only: contents never leave the workdir in events.
                     fallback = args.get("path", "") if isinstance(args, dict) else ""
                     written = str(outcome.get("path", fallback))
+                    # Snapshot immediately: a write is a code iteration, and
+                    # capped runs without a run would otherwise lose all code.
+                    _snapshot(workdir, code_root / f"iter_{iterations + 1}")
                     run.emit(
                         "code_written",
                         "progress",
