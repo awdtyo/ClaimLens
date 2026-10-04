@@ -19,6 +19,7 @@ interface ClaimDetailProps {
   treeError?: boolean;
   onRetryTree?: () => void;
   runFailed?: boolean;
+  newFiles?: Set<string>;
 }
 
 function confidenceClass(level: string): string {
@@ -127,6 +128,7 @@ export default function ClaimDetail({
   treeError,
   onRetryTree,
   runFailed,
+  newFiles,
 }: ClaimDetailProps) {
   const { claim, verdict } = row;
   const [tab, setTab] = useState<"details" | "code" | "findings">("details");
@@ -301,6 +303,7 @@ export default function ClaimDetail({
             treeError={treeError ?? false}
             onRetryTree={onRetryTree ?? (() => {})}
             runFailed={runFailed ?? false}
+            newFiles={newFiles}
             highlightRequest={highlightRequest}
             onHighlightConsumed={() => setHighlightRequest(null)}
           />

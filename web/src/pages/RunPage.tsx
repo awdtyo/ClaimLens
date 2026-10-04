@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { artifactUrl, cancelRun } from "../api/client";
@@ -13,7 +13,7 @@ import { countVerdicts, joinClaimRows } from "../lib/claims";
 import { formatDateTime } from "../lib/format";
 import { useArtifact, useReportText, useRun } from "../hooks/useApi";
 import { useCodeTree } from "../hooks/useCode";
-import { claimCode } from "../api/code";
+import { claimCode, codeTreeKeys, codeZipUrl, isCodeWrittenEvent } from "../api/code";
 import { useRunEvents } from "../hooks/useRunEvents";
 import { Button, Card, EmptyState, ErrorState, LoadingState } from "../components/ui";
 import ClaimsList from "../components/ClaimsList";
@@ -71,6 +71,39 @@ export default function RunPage() {
   const parsedQuery = useArtifact(runId, "parsed", parseParsedPaper, true);
   const reportQuery = useReportText(runId, finished || tab === "report");
   const codeTreeQuery = useCodeTree(runId, true);
+
+  // Live code updates: refetch the file tree when code_written events
+  // arrive, without touching selection, focus or scroll position. New
+  // files get a "new" indicator in the Code tab.
+  const [newCodeFiles, setNewCodeFiles] = useState<Set<string>>(new Set());
+  const prevCodeKeysRef = useRef<Set<string> | null>(null);
+  const seenEventsRef = useRef(0);
+  useEffect(() => {
+    if (!codeTreeQuery.data) return;
+    const keys = codeTreeKeys(codeTreeQuery.data);
+    const prev = prevCodeKeysRef.current;
+    if (prev === null) {
+      prevCodeKeysRef.current = keys;
+      return;
+    }
+    const added = [...keys].filter((k) => !prev.has(k));
+    if (added.length > 0) {
+      setNewCodeFiles((old) => new Set([...old, ...added]));
+    }
+    prevCodeKeysRef.current = keys;
+  }, [codeTreeQuery.data]);
+  useEffect(() => {
+    if (!active) {
+      seenEventsRef.current = events.length;
+      return;
+    }
+    const fresh = events.slice(seenEventsRef.current);
+    seenEventsRef.current = events.length;
+    if (fresh.some(isCodeWrittenEvent)) {
+      void codeTreeQuery.refetch();
+    }
+    // Refetch only on new events; tree data drives the "new" markers.
+  }, [events, active]);
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelRun(runId as string),
@@ -265,7 +298,20 @@ export default function RunPage() {
                     treeError={codeTreeQuery.isError}
                     onRetryTree={() => void codeTreeQuery.refetch()}
                     runFailed={run?.status === "failed"}
+                    newFiles={newCodeFiles}
                   />
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <a
+                      href={codeZipUrl(runId)}
+                      download
+                      className="inline-flex h-9 items-center rounded-md border border-gray-300 px-3 text-sm font-medium hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800"
+                    >
+                      Download code
+                    </a>
+                    <span className="text-xs text-gray-600 dark:text-gray-400">
+                      Archive of the exact code that was executed.
+                    </span>
+                  </div>
                   {selectedRow.verdict == null && (
                     <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
                       No backend verdict for this claim yet.

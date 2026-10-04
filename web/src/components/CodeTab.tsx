@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CodeClaim } from "../api/code";
+import { codeFileKey, type CodeClaim } from "../api/code";
 import { diffLines } from "../lib/diff";
 import { cn } from "../lib/utils";
 import { useCodeFile } from "../hooks/useCode";
@@ -19,15 +19,15 @@ interface CodeTabProps {
   treeError: boolean;
   onRetryTree: () => void;
   runFailed: boolean;
-  /** Files seen as new since the tab was opened (`claim/iter/index`). */
+  /** Files seen as new since the tab was opened (`claim/iter/name`). */
   newFiles?: Set<string>;
   /** External request to jump to a file+line (e.g. from a finding). */
   highlightRequest?: HighlightRequest | null;
   onHighlightConsumed?: () => void;
 }
 
-function fileKey(claimId: string, iteration: number, index: number): string {
-  return `${claimId}/${iteration}/${index}`;
+function fileKey(claimId: string, iteration: number, name: string): string {
+  return codeFileKey(claimId, iteration, name);
 }
 
 /**
@@ -261,7 +261,7 @@ export default function CodeTab({
           ) : (
             files.map((f, idx) => {
               const selected = idx === fileIndex;
-              const isNew = newFiles?.has(fileKey(claimId, iteration ?? 0, f.index)) ?? false;
+              const isNew = newFiles?.has(fileKey(claimId, iteration ?? 0, f.name)) ?? false;
               return (
                 <button
                   key={f.index}

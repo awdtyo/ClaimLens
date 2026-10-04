@@ -62,6 +62,56 @@ export function claimCode(
   return tree.claims.find((c) => c.claim_id === claimId) ?? null;
 }
 
+/** Stable key for a code file, used for "new" indicators. */
+export function codeFileKey(claimId: string, iteration: number, name: string): string {
+  return `${claimId}/${iteration}/${name}`;
+}
+
+/** All file keys in a code tree. */
+export function codeTreeKeys(tree: CodeTree | null | undefined): Set<string> {
+  const keys = new Set<string>();
+  if (!tree) return keys;
+  for (const claim of tree.claims ?? []) {
+    for (const it of claim.iterations ?? []) {
+      for (const f of it.files ?? []) {
+        keys.add(codeFileKey(claim.claim_id, it.iteration, f.name));
+      }
+    }
+  }
+  return keys;
+}
+
+export interface CodeLikeEvent {
+  stage: string;
+  message?: string | null;
+  data?: unknown;
+}
+
+/**
+ * True when an SSE event signals newly written code.
+ *
+ * The backend has no dedicated `code_written` stage yet, so this also
+ * matches the mock pipeline's sandbox progress lines such as
+ * "agent: wrote train_x.py". A future `code_written` stage or message
+ * matches directly. Display only: only triggers a tree refetch.
+ */
+export function isCodeWrittenEvent(event: CodeLikeEvent): boolean {
+  if (!event || typeof event.stage !== "string") return false;
+  if (event.stage === "code_written") return true;
+  const message = typeof event.message === "string" ? event.message : "";
+  if (/code_written/i.test(message)) return true;
+  if (/wrote\s+\S+\.(py|js|jsx|ts|tsx|json|sh|yaml|yml|md|toml|ini|cfg)/i.test(message)) {
+    return true;
+  }
+  if (event.data && typeof event.data === "object") {
+    const data = event.data as Record<string, unknown>;
+    if (("claim_id" in data || "file" in data) && /code|wrote|sandbox/i.test(event.stage)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Detect binary content from raw bytes (null byte or mostly non-text). */
 export function isBinaryBytes(bytes: Uint8Array): boolean {
   const sample = bytes.slice(0, 8000);
