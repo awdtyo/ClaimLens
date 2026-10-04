@@ -342,10 +342,6 @@ class LLMGateway:
             payload["generationConfig"] = generation_config
         if tools is not None:
             payload["tools"] = [{"functionDeclarations": tools}]
-            # Thinking models narrate tool use instead of calling; ANY
-            # forces real function calls. The agent finishes through the
-            # report_result tool, so no plain-text finish is needed.
-            payload["toolConfig"] = {"functionCallingConfig": {"mode": "ANY"}}
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
             f":generateContent?key={api_key}"
