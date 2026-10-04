@@ -1,5 +1,5 @@
 import { Check, Loader2, X } from "lucide-react";
-import { STAGE_ORDER, type RunDetail } from "../api/client";
+import { getStageList, stageLabel, type RunDetail } from "../api/client";
 import { elapsedSeconds, formatDuration } from "../lib/format";
 import { cn } from "../lib/utils";
 
@@ -26,13 +26,15 @@ function StageIcon({ status }: { status: string }) {
 }
 
 /**
- * Six-stage pipeline stepper driven by run state (polled) and the SSE
- * event stream. Shows per-stage status, elapsed time and errors.
+ * Pipeline stepper driven by the stage list in the API run state.
+ * Shows per-stage status, elapsed time and errors. Unknown future
+ * stages render with a generic label instead of breaking.
  */
 export default function PipelineStepper({ run }: { run: RunDetail }) {
+  const stages = getStageList(run);
   return (
     <ol aria-label="Pipeline stages" className="flex flex-col gap-1">
-      {STAGE_ORDER.map((stage, index) => {
+      {stages.map((stage, index) => {
         const state = run.stages?.[stage];
         const status = stageStatus(run, stage);
         const elapsed = elapsedSeconds(state?.started_at, state?.ended_at);
@@ -53,7 +55,7 @@ export default function PipelineStepper({ run }: { run: RunDetail }) {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <span className="text-sm font-medium capitalize">
-                  {index + 1}. {stage}
+                  {index + 1}. {stageLabel(stage)}
                 </span>
                 <span className="text-xs text-gray-600 dark:text-gray-400">
                   {status}

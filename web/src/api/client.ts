@@ -18,16 +18,46 @@ export type StageState = components["schemas"]["StageState"];
 export type CreateRunResponse =
   components["schemas"]["CreateRunResponse"];
 
-export const STAGE_ORDER = [
+export const CANONICAL_STAGE_ORDER = [
   "ingest",
   "claims",
   "plan",
   "sandbox",
+  "code_audit",
   "verify",
   "report",
 ] as const;
 
-export type StageName = (typeof STAGE_ORDER)[number];
+export type StageName = (typeof CANONICAL_STAGE_ORDER)[number] | (string & {});
+
+/** Backwards-compatible alias; prefer getStageList(run) for rendering. */
+export const STAGE_ORDER = CANONICAL_STAGE_ORDER;
+
+/** Human-readable label for a stage id. Unknown ids render generically. */
+export function stageLabel(stage: string): string {
+  const cleaned = stage.trim();
+  if (cleaned.length === 0) return "unknown stage";
+  return cleaned.replace(/_/g, " ");
+}
+
+/**
+ * Stage list for the stepper, taken from the API run state.
+ *
+ * The backend owns the stage list (`RunDetail.stages`, seeded from
+ * `STAGE_ORDER` server-side including `code_audit`). The frontend never
+ * hardcodes the pipeline order; unknown future stages pass through so
+ * they render with a generic label instead of breaking.
+ */
+export function getStageList(run: {
+  stages?: Record<string, unknown> | null | undefined;
+} | null | undefined): string[] {
+  const keys =
+    run?.stages && typeof run.stages === "object"
+      ? Object.keys(run.stages)
+      : [];
+  if (keys.length > 0) return keys;
+  return [...CANONICAL_STAGE_ORDER];
+}
 
 async function checkResponse(res: Response): Promise<Response> {
   if (!res.ok) {
