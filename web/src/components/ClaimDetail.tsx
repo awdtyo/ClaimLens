@@ -1,6 +1,10 @@
+import { useState } from "react";
+import type { CodeClaim } from "../api/code";
 import type { Assumption, AssumptionEffect } from "../api/models";
 import type { ClaimRow } from "../lib/claims";
 import { formatValue } from "../lib/format";
+import { cn } from "../lib/utils";
+import CodeTab from "./CodeTab";
 import { Button, Chip } from "./ui";
 import VerdictBadge from "./VerdictBadge";
 
@@ -8,6 +12,12 @@ interface ClaimDetailProps {
   row: ClaimRow;
   assumptions: Assumption[];
   onViewLogs: () => void;
+  runId: string;
+  codeClaim?: CodeClaim | null;
+  treeLoading?: boolean;
+  treeError?: boolean;
+  onRetryTree?: () => void;
+  runFailed?: boolean;
 }
 
 function confidenceClass(level: string): string {
@@ -102,12 +112,23 @@ function SensitivityChart({
 }
 
 /**
- * Claim detail panel. All verdicts, values and effects are backend
- * data shown as-is; differences are arithmetic display only and never
- * change the verdict.
+ * Claim detail panel with Details and Code tabs. All verdicts, values
+ * and effects are backend data shown as-is; differences are arithmetic
+ * display only and never change the verdict.
  */
-export default function ClaimDetail({ row, assumptions, onViewLogs }: ClaimDetailProps) {
+export default function ClaimDetail({
+  row,
+  assumptions,
+  onViewLogs,
+  runId,
+  codeClaim,
+  treeLoading,
+  treeError,
+  onRetryTree,
+  runFailed,
+}: ClaimDetailProps) {
   const { claim, verdict } = row;
+  const [tab, setTab] = useState<"details" | "code">("details");
   const reported = claim.reported_value ?? null;
   const measured = row.measured;
   const delta =
@@ -126,6 +147,39 @@ export default function ClaimDetail({ row, assumptions, onViewLogs }: ClaimDetai
       </div>
       <p className="text-sm">{claim.text}</p>
 
+      <div
+        role="tablist"
+        aria-label={`Claim ${claim.id} sections`}
+        className="flex gap-1 border-b border-gray-200 dark:border-gray-800"
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+          e.preventDefault();
+          setTab((t) => (t === "details" ? "code" : "details"));
+        }}
+      >
+        {(["details", "code"] as const).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            type="button"
+            aria-selected={tab === t}
+            aria-controls={`claim-${claim.id}-panel-${t}`}
+            id={`claim-${claim.id}-tab-${t}`}
+            onClick={() => setTab(t)}
+            className={cn(
+              "rounded-t-md px-3 py-1.5 text-sm font-medium",
+              tab === t
+                ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100"
+                : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800/50",
+            )}
+          >
+            {t === "details" ? "Details" : "Code"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "details" ? (
+      <div id={`claim-${claim.id}-panel-details`} role="tabpanel" aria-labelledby={`claim-${claim.id}-tab-details`} className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3" aria-label="Reported versus measured">
         <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
           <p className="text-xs text-gray-600 dark:text-gray-400">Reported (paper)</p>
@@ -221,6 +275,20 @@ export default function ClaimDetail({ row, assumptions, onViewLogs }: ClaimDetai
               </Button>
             </p>
           )}
+        </div>
+      )}
+      </div>
+      ) : (
+        <div id={`claim-${claim.id}-panel-code`} role="tabpanel" aria-labelledby={`claim-${claim.id}-tab-code`}>
+          <CodeTab
+            runId={runId}
+            claimId={claim.id}
+            codeClaim={codeClaim ?? null}
+            treeLoading={treeLoading ?? false}
+            treeError={treeError ?? false}
+            onRetryTree={onRetryTree ?? (() => {})}
+            runFailed={runFailed ?? false}
+          />
         </div>
       )}
     </article>

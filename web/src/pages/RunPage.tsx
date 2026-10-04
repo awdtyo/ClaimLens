@@ -12,6 +12,8 @@ import {
 import { countVerdicts, joinClaimRows } from "../lib/claims";
 import { formatDateTime } from "../lib/format";
 import { useArtifact, useReportText, useRun } from "../hooks/useApi";
+import { useCodeTree } from "../hooks/useCode";
+import { claimCode } from "../api/code";
 import { useRunEvents } from "../hooks/useRunEvents";
 import { Button, Card, EmptyState, ErrorState, LoadingState } from "../components/ui";
 import ClaimsList from "../components/ClaimsList";
@@ -68,6 +70,7 @@ export default function RunPage() {
   const planQuery = useArtifact(runId, "plan", parsePlan, wantResults);
   const parsedQuery = useArtifact(runId, "parsed", parseParsedPaper, true);
   const reportQuery = useReportText(runId, finished || tab === "report");
+  const codeTreeQuery = useCodeTree(runId, true);
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelRun(runId as string),
@@ -252,6 +255,16 @@ export default function RunPage() {
                     row={selectedRow}
                     assumptions={planQuery.data?.assumptions ?? []}
                     onViewLogs={scrollToLog}
+                    runId={runId}
+                    codeClaim={
+                      codeTreeQuery.data
+                        ? claimCode(codeTreeQuery.data, selectedRow.claim.id)
+                        : null
+                    }
+                    treeLoading={codeTreeQuery.isLoading}
+                    treeError={codeTreeQuery.isError}
+                    onRetryTree={() => void codeTreeQuery.refetch()}
+                    runFailed={run?.status === "failed"}
                   />
                   {selectedRow.verdict == null && (
                     <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
