@@ -1,0 +1,21 @@
+# Ownership for review routing. Replace placeholders with GitHub usernames.
+
+/claimlens/llm.py @ADMIN
+/claimlens/config.py @ADMIN
+/claimlens/cli.py @ADMIN
+/claimlens/pipeline.py @ADMIN
+/claimlens/artifacts.py @ADMIN
+/claimlens/claims/schema.py @ADMIN
+/claimlens/plan/ @ADMIN
+/.github/ @ADMIN
+/docs/ @ADMIN
+/AGENTS.md @ADMIN
+
+/claimlens/ingest/ @PART_A
+/claimlens/claims/extract.py @PART_A
+
+/claimlens/sandbox/ @PART_B
+
+/claimlens/verify/ @PART_C
+/claimlens/report/ @PART_C
+/docs/eval.md @PART_C
