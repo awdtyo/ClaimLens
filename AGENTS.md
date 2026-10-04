@@ -26,6 +26,7 @@ These apply to every change. If a task seems to require breaking one, stop and a
 6. **Every claim gets a verdict.** The pipeline is not finished until each extracted claim is resolved, including as "untestable". The coding agent may not mark a claim done; only the verification stage can.
 7. **Sandbox only.** Generated experiment code runs inside Docker, never on the host.
 8. **Table numbers are cross-checked.** Tables are read from the PDF text layer and from page images, and any mismatch is flagged, not silently resolved.
+9. **The frontend displays backend verdicts only.** It never computes or changes a verdict.
 
 ## Models and configuration
 
@@ -55,6 +56,7 @@ claimlens/
   cli.py          # claimlens run paper.pdf --out runs/ ; claimlens report <run_id>
   llm.py          # single model gateway
   config.py
+  api/            # FastAPI backend wrapping the pipeline
   ingest/         # pdf_text.py, tables.py
   claims/         # extract.py, schema.py
   plan/           # gaps.py, spec.py
@@ -63,6 +65,7 @@ claimlens/
   report/         # render.py
   tests/
   examples/       # small papers with known expected outcomes
+web/              # React frontend (Vite, TypeScript, Tailwind)
 ```
 
 Data models live in `claims/schema.py` (pydantic): `Claim`, `Assumption`, `Evidence`, `Verdict`.
@@ -94,11 +97,13 @@ Ownership:
 
 - Admin: `claimlens/llm.py`, `claimlens/config.py`, `claimlens/cli.py`,
   `claimlens/pipeline.py`, `claimlens/artifacts.py`,
-  `claimlens/claims/schema.py`, `claimlens/plan/`, CI, docs, `AGENTS.md`.
+  `claimlens/claims/schema.py`, `claimlens/plan/`, `claimlens/api/`,
+  `docs/openapi.json`, CI, docs, `AGENTS.md`.
 - Part A: `claimlens/ingest/`, `claimlens/claims/extract.py`, tests for these.
 - Part B: `claimlens/sandbox/`, tests for these.
 - Part C: `claimlens/verify/`, `claimlens/report/`, `examples/`,
   `scripts/`, `docs/eval.md`, tests for these.
+- Part D: `web/`, tests for these.
 
 Rules:
 
@@ -111,7 +116,7 @@ Rules:
   in `docs/toy_paper.md`, using the fake LLM provider
   (`CLAIMLENS_PROVIDER=fake`) so no API key is needed.
 - Branch naming: `feat/part-a-...`, `feat/part-b-...`,
-  `feat/part-c-...` (admin: `feat/admin-...`). Rebase on
+  `feat/part-c-...`, `feat/part-d-...` (admin: `feat/admin-...`). Rebase on
   `upstream/main`, keep PRs small (one stage or fix each).
 - See `CONTRIBUTING.md` for the full workflow and
   `docs/CONTRACTS.md` for stage inputs and outputs.

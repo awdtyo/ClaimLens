@@ -33,6 +33,7 @@ which serves canned responses from
    - `feat/part-a-<stage>-<short-name>` (ingest, claim extraction)
    - `feat/part-b-<stage>-<short-name>` (sandbox)
    - `feat/part-c-<stage>-<short-name>` (verify, report, examples)
+   - `feat/part-d-<short-name>` (web frontend)
    - Admin uses `feat/admin-<short-name>` or `fix/admin-<short-name>`.
 5. Keep PRs small: one stage or one fix per PR.
 6. Rebase on `upstream/main` before requesting review. Resolve
@@ -42,11 +43,13 @@ which serves canned responses from
 
 - Admin: `claimlens/llm.py`, `claimlens/config.py`, `claimlens/cli.py`,
   `claimlens/pipeline.py`, `claimlens/artifacts.py`,
-  `claimlens/claims/schema.py`, `claimlens/plan/`, CI, docs, `AGENTS.md`.
+  `claimlens/claims/schema.py`, `claimlens/plan/`, `claimlens/api/`,
+  `docs/openapi.json`, CI, docs, `AGENTS.md`.
 - Part A: `claimlens/ingest/`, `claimlens/claims/extract.py`, tests for these.
 - Part B: `claimlens/sandbox/`, tests for these.
 - Part C: `claimlens/verify/`, `claimlens/report/`, `claimlens/examples/`,
   `scripts/`, `docs/eval.md`, tests for these.
+- Part D: `web/`, tests for these.
 
 Rule: edit only your owned paths. Touching another part's paths needs
 that owner's review.
@@ -79,3 +82,17 @@ pytest
 
 All three must pass. The end-to-end test is expected to `xfail` until
 the stage logic lands. Tests marked `docker` are skipped in CI.
+
+Frontend changes must also pass, from `web/`:
+
+```bash
+npm ci
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+If an API change alters `docs/openapi.json`, regenerate it with
+`claimlens export-openapi` and refresh `web/src/api/types.ts` with
+`npm run gen:api` from `web/`.

@@ -20,20 +20,28 @@ reaches 91.2% accuracy on dataset D versus 88.0% for baseline Y.
 ## Schema notes
 
 - `Claim`: `id`, `text`, `source_ref` (required, real reference), optional
-  `metric` and `reported_value`.
-- `Assumption`: `detail`, `value_chosen`, `reason` (never empty),
+  `metric`, `reported_value` and `page` (PDF page for UI navigation).
+- `Assumption`: `id`, `detail`, `value_chosen`, `reason` (never empty),
   `confidence` (`low` | `medium` | `high`).
+- `AssumptionEffect`: `assumption_id`, `claim_id`, `alt_value`,
+  `measured_value`, `delta`. Records one sensitivity rerun where a
+  single assumption was varied.
 - `Evidence`: `id`, `claim_id`, `method`, `measured_value`, `config`,
   `logs_ref`, `scale_factor`.
 - `Verdict`: `claim_id`, `status` (`replicated` | `partially replicated` |
   `not replicated` | `untestable` | `untestable at this scale`),
-  `rationale`, `evidence_ids`, `scaled`.
-- `ParsedPaper`: `title`, `sections` (`Section`: `id`, `title`, `text`),
-  `tables` (`Table`: `id`, `caption`, `rows`, `source`),
+  `rationale`, `evidence_ids`, `scaled`, `assumption_effects`
+  (list of `AssumptionEffect`, empty when there were no reruns).
+- `ParsedPaper`: `title`, `sections` (`Section`: `id`, `title`, `text`,
+  `page`), `tables` (`Table`: `id`, `caption`, `rows`, `source`, `page`),
   `table_mismatches` (`TableMismatch`: `table_id`, `row`, `col`,
   `text_value`, `vision_value`).
 - `Plan`: `items` (`PlanItem`: `claim_id`, `steps`, `scale_factor`,
   `config`), `assumptions`.
+- `RunContext.emit(stage, status, message=None, data=None)` appends
+  `{"ts", "run_id", "stage", "status", "message", "data"}` to
+  `runs/<run_id>/events.jsonl` and notifies live SSE subscribers.
+  `status` is one of `started` | `progress` | `done` | `failed`.
 
 ## Pipeline and CLI
 
@@ -50,3 +58,25 @@ reaches 91.2% accuracy on dataset D versus 88.0% for baseline Y.
 tools=None, role="agent")` with roles `planner`, `agent`, `fast`.
 Providers `gemini`, `openrouter`, `ollama`, `fake`. The `fake` provider
 serves `tests/fixtures/fake_llm_responses.json` keyed by `task`.
+
+## Mock pipeline
+
+With `CLAIMLENS_MOCK_PIPELINE=1`, `claimlens.api.mock` replays
+`tests/fixtures/mock_*.json` stage by stage with short random delays
+(`CLAIMLENS_MOCK_DELAY` overrides the per-step delay in seconds) and
+realistic progress events including agent log lines. The mock run
+covers every UI state: one table mismatch, one `replicated` claim, one
+`partially replicated` claim, one `not replicated` claim with two
+`assumption_effects`, and one `untestable` claim. Two finished runs
+with `demo=true` are seeded at server startup.
+
+## Web API
+
+State lives in `runs/<run_id>/state.json`; there is no database.
+`run_id` is a uuid hex string. Artifact names are whitelisted
+(`parsed`, `claims`, `plan`, `evidence`, `verdicts`, `report`, `paper`);
+file paths are never built from user input. CORS allows only the Vite
+dev origin. `CLAIMLENS_MAX_CONCURRENT_RUNS` (default 1) bounds parallel
+runs; extra runs stay `queued`. The schema is generated with
+`claimlens export-openapi` into `docs/openapi.json`; the frontend
+regenerates `web/src/api/types.ts` from it with `npm run gen:api`.

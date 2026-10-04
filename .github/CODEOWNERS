@@ -19,3 +19,8 @@
 /claimlens/verify/ @PART_C
 /claimlens/report/ @PART_C
 /docs/eval.md @PART_C
+
+/claimlens/api/ @ADMIN
+/docs/openapi.json @ADMIN
+
+/web/ @PART_D
