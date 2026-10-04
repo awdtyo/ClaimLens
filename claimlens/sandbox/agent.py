@@ -235,7 +235,9 @@ def run_agent_for_claim(
                 )
                 continue
 
-            for call in calls:
+            worklist = list(calls)
+            while worklist:
+                call = worklist.pop(0)
                 name = str(call["name"])
                 args = call["arguments"]
                 run.emit(
@@ -320,6 +322,22 @@ def run_agent_for_claim(
                         observation += (
                             f" IMPORTANT: you have written {writes_since_run} files "
                             "without running anything. Call run_in_sandbox NOW."
+                        )
+                    if writes_since_run >= 3 and written.endswith(".py"):
+                        # The model refines instead of running; guarantee
+                        # progress by executing the latest script. The model
+                        # still owns the code and the final value.
+                        run.emit(
+                            "sandbox",
+                            "progress",
+                            f"{claim_id}: auto-running {written}",
+                            {"claim_id": claim_id, "tool": "run_in_sandbox"},
+                        )
+                        worklist.append(
+                            {
+                                "name": "run_in_sandbox",
+                                "arguments": {"command": ["python", written]},
+                            }
                         )
                 if name == "run_in_sandbox":
                     writes_since_run = 0

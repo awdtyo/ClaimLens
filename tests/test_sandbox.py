@@ -357,6 +357,26 @@ def test_consecutive_writes_trigger_run_nudge(tmp_path: Path) -> None:
     assert nudged, "after two writeless runs the loop must demand a run"
 
 
+def test_third_consecutive_write_auto_runs(tmp_path: Path) -> None:
+    """The harness executes the script itself when the model only refines."""
+    run = make_run_context("agent-autorun", runs_root=tmp_path / "runs")
+    write_call = {
+        "tool_calls": [
+            {"name": "write_file", "arguments": {"path": "exp.py", "content": "print(1)"}}
+        ]
+    }
+    llm = ScriptedLLM([write_call] * 4)
+    ran: list = []
+
+    def fake_run(command: list[str], timeout_s: int = 60, packages=None):  # type: ignore[no-untyped-def]
+        ran.append(command)
+        return DockerResult(exit_code=0, stdout="MEASURED 0.5", stderr="", timed_out=False)
+
+    agent_mod.run_agent_for_claim("c1", _item(), run, llm=llm, run_fn=fake_run, max_iterations=4)
+    assert ran == [["python", "exp.py"]]
+    assert (Path(run.run_dir) / "code" / "c1" / "iter_1" / "exp.py").exists()
+
+
 def test_code_written_events_carry_names_not_contents(tmp_path: Path) -> None:
     run = make_run_context("agent-code-events", runs_root=tmp_path / "runs")
     llm = ScriptedLLM(
