@@ -227,6 +227,96 @@ def _item() -> PlanItem:
     )
 
 
+def test_agent_never_sees_reported_values_in_any_format(tmp_path: Path) -> None:
+    """Blinded generation: the distinctive value 0.9173 reaches no prompt."""
+    from claimlens.claims.schema import Claim, Plan
+
+    claim = Claim(
+        id="c9",
+        text="Method Z reaches 91.73% accuracy.",
+        source_ref="t1",
+        metric="accuracy",
+        reported_value=0.9173,
+        tolerance=0.01,
+    )
+    leaky = Plan(
+        items=[
+            PlanItem(
+                claim_id="c9",
+                steps=["Reproduce the reported 0.9173 accuracy (91.73%)", "Record accuracy"],
+                scale_factor=0.1,
+                scale_reason="Target 91.73% is costly at full scale.",
+                config={"epochs": 10, "note": "target 91.73%"},
+            )
+        ],
+        assumptions=[],
+    )
+    blinded = leaky.blinded([claim])
+    run = make_run_context("agent-blind", runs_root=tmp_path / "runs")
+    llm = ScriptedLLM(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "name": "write_file",
+                        "arguments": {"path": "exp.py", "content": "print('MEASURED 0.91')"},
+                    }
+                ]
+            },
+            {
+                "tool_calls": [
+                    {"name": "run_in_sandbox", "arguments": {"command": ["python", "exp.py"]}}
+                ]
+            },
+            {"measured_value": 0.91},
+        ]
+    )
+    evidence = agent_mod.run_agent_for_claim("c9", blinded.items[0], run, llm=llm, run_fn=_ok_run)
+    assert evidence.measured_value == 0.91
+    assert llm.prompts, "the loop must actually prompt the model"
+    for prompt in llm.prompts:
+        assert "0.9173" not in prompt
+        assert "91.73" not in prompt
+        assert "91.73%" not in prompt
+
+
+def test_code_written_events_carry_names_not_contents(tmp_path: Path) -> None:
+    run = make_run_context("agent-code-events", runs_root=tmp_path / "runs")
+    llm = ScriptedLLM(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "name": "write_file",
+                        "arguments": {"path": "train.py", "content": "SENSITIVE-BLOB print(1)"},
+                    }
+                ]
+            },
+            {
+                "tool_calls": [
+                    {"name": "run_in_sandbox", "arguments": {"command": ["python", "train.py"]}}
+                ]
+            },
+            {"measured_value": 0.5},
+        ]
+    )
+    evidence = agent_mod.run_agent_for_claim("c1", _item(), run, llm=llm, run_fn=_ok_run)
+    assert evidence.code_dir == "code/c1"
+    assert evidence.iterations == 1
+    assert (Path(run.run_dir) / "code" / "c1" / "iter_1" / "train.py").exists()
+    events = [
+        json.loads(line)
+        for line in (Path(run.run_dir) / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    written = [event for event in events if event["stage"] == "code_written"]
+    assert len(written) == 1
+    event = written[0]
+    assert event["status"] == "progress"
+    assert event["data"] == {"claim_id": "c1", "iter": 1, "file": "train.py"}
+    assert "SENSITIVE-BLOB" not in str(event["message"])
+    assert "SENSITIVE-BLOB" not in json.dumps(event["data"])
+
+
 def test_agent_writes_code_runs_it_and_returns_evidence(tmp_path: Path) -> None:
     run = make_run_context("agent-ok", runs_root=tmp_path / "runs")
     llm = ScriptedLLM(
