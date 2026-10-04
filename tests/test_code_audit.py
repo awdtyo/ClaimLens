@@ -139,16 +139,9 @@ def test_sandbox_receives_only_blinded_plan(
         assert "91.2" not in text
 
 
-def test_audit_code_stub_raises(isolated_run) -> None:  # type: ignore[no-untyped-def]
-    plan = Plan()
-    with pytest.raises(NotImplementedError):
-        audit_mod.audit_code([], [], plan, isolated_run)
-
-
-def test_code_audit_stage_calls_stub(isolated_run) -> None:  # type: ignore[no-untyped-def]
-    plan = Plan()
-    with pytest.raises(NotImplementedError):
-        run_stage("code_audit", isolated_run, {"claims": [], "plan": plan, "evidence": []})
+def test_audit_code_runs_without_a_stub(isolated_run) -> None:  # type: ignore[no-untyped-def]
+    """The audit stub landed with Part 2: empty inputs yield no findings."""
+    assert audit_mod.audit_code([], [], Plan(), isolated_run) == []
 
 
 def test_sample_code_findings_validate(fixtures_dir: Path) -> None:
