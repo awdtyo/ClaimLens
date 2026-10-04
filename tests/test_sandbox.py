@@ -130,6 +130,7 @@ def test_tool_definitions_cover_required_tools() -> None:
         "read_file",
         "write_file",
         "install_package",
+        "report_result",
     }
 
 
@@ -152,6 +153,14 @@ def test_install_package_validates_spec(tmp_path: Path) -> None:
     assert tools.install_package("numpy==1.26.4")["ok"]
     assert tools.install_package("numpy==1.26.4")["pending"] == ["numpy==1.26.4"]
     assert not tools.install_package("numpy; rm -rf /")["ok"]
+
+
+def test_report_result_validates_numbers(tmp_path: Path) -> None:
+    tools = SandboxTools(tmp_path / "work")
+    ok = tools.dispatch("report_result", {"measured_value": 0.91, "method": "train X"})
+    assert ok == {"ok": True, "measured_value": 0.91, "method": "train X"}
+    assert tools.dispatch("report_result", {"measured_value": "lot"})["ok"] is False
+    assert tools.dispatch("report_result", {})["ok"] is False
 
 
 def test_dispatch_accepts_json_string_args(tmp_path: Path) -> None:
@@ -278,6 +287,40 @@ def test_agent_never_sees_reported_values_in_any_format(tmp_path: Path) -> None:
         assert "0.9173" not in prompt
         assert "91.73" not in prompt
         assert "91.73%" not in prompt
+
+
+def test_agent_finishes_through_report_result_tool(tmp_path: Path) -> None:
+    """Gemini-style finish: forced function calls end via report_result."""
+    run = make_run_context("agent-report-tool", runs_root=tmp_path / "runs")
+    llm = ScriptedLLM(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "name": "write_file",
+                        "arguments": {"path": "exp.py", "content": "print('MEASURED 0.77')"},
+                    }
+                ]
+            },
+            {
+                "tool_calls": [
+                    {"name": "run_in_sandbox", "arguments": {"command": ["python", "exp.py"]}}
+                ]
+            },
+            {
+                "tool_calls": [
+                    {
+                        "name": "report_result",
+                        "arguments": {"measured_value": 0.77, "method": "train X on 10%"},
+                    }
+                ]
+            },
+        ]
+    )
+    evidence = agent_mod.run_agent_for_claim("c1", _item(), run, llm=llm, run_fn=_ok_run)
+    assert evidence.measured_value == 0.77
+    assert evidence.iterations == 1
+    assert (Path(run.run_dir) / "code" / "c1" / "iter_1" / "exp.py").exists()
 
 
 def test_code_written_events_carry_names_not_contents(tmp_path: Path) -> None:

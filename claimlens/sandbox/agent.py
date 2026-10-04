@@ -38,10 +38,19 @@ SUMMARY_CHARS = 200
 
 SYSTEM_PROMPT = (
     "You reproduce one paper claim with a small sandbox experiment. "
-    "Write code with write_file, run it with run_in_sandbox, read results with read_file. "
+    "Act ONLY by calling functions: write_file, run_in_sandbox, read_file, "
+    "install_package, report_result. Never narrate instead of calling. "
+    "The workdir starts empty and there are no dataset files: generate a "
+    "small synthetic dataset inside your own code. "
+    "Use only the Python standard library and numpy (already installed); "
+    "do not import torch, tensorflow, sklearn or anything else. "
+    "Your FIRST action must be write_file with the complete experiment "
+    "script. Never call install_package for numpy; call it at most once "
+    "total, and only for anything else. "
+    "Keep each file under 60 lines of complete, runnable code. "
     "Needed PyPI packages go through install_package. "
-    "When a run prints the final number, reply with JSON "
-    '{"measured_value": <number>, "method": "<one line>"} and stop. '
+    "When a run prints the final number, call report_result with "
+    "measured_value and a one-line method, then stop. "
     "Print the result inside the sandbox as 'MEASURED <number>'. "
     "Never invent a number: if the code fails, say why instead."
 )
@@ -64,6 +73,8 @@ def _tool_summary(name: str, args: Any) -> str:
         return f"install_package package={items.get('package')!r}"
     if name == "read_file":
         return f"read_file path={items.get('path')!r}"
+    if name == "report_result":
+        return f"report_result measured_value={items.get('measured_value')!r}"
     return f"{name} {_short(json.dumps(args, default=str))}"
 
 
@@ -236,6 +247,29 @@ def run_agent_for_claim(
                     outcome = tools.dispatch(name, args)
                 except Exception as e:  # noqa: BLE001 - tool errors are observations, not crashes.
                     outcome = {"ok": False, "error": _short(e)}
+                if name == "report_result" and outcome.get("ok"):
+                    measured_via_tool = _extract_measured(outcome)
+                    if measured_via_tool is not None:
+                        evidence_id = f"e_{claim_id}"
+                        logs_ref = _write_log(run_dir, evidence_id, last_stdout, "")
+                        run.emit(
+                            "sandbox",
+                            "progress",
+                            f"{claim_id}: measured {measured_via_tool}",
+                            {"claim_id": claim_id, "measured_value": measured_via_tool},
+                        )
+                        return Evidence(
+                            id=evidence_id,
+                            claim_id=claim_id,
+                            method=str(outcome.get("method", ""))
+                            or f"docker: agent experiment for {claim_id} at scale {item.scale_factor}",
+                            measured_value=measured_via_tool,
+                            config=dict(item.config),
+                            logs_ref=logs_ref,
+                            scale_factor=item.scale_factor,
+                            code_dir=f"code/{claim_id}",
+                            iterations=iterations,
+                        )
                 if name == "write_file" and outcome.get("ok"):
                     # File name only: contents never leave the workdir in events.
                     fallback = args.get("path", "") if isinstance(args, dict) else ""
