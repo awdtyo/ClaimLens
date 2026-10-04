@@ -131,6 +131,7 @@ class PlanItem(BaseModel):
     claim_id: str
     steps: list[str] = Field(default_factory=list)
     scale_factor: float = 1.0
+    scale_reason: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
 
 
