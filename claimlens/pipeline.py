@@ -8,7 +8,14 @@ from typing import Any
 
 from claimlens import artifacts
 from claimlens.artifacts import STAGE_ORDER
-from claimlens.claims.schema import Claim, Evidence, ParsedPaper, Plan, Verdict
+from claimlens.claims.schema import (
+    Claim,
+    CodeFinding,
+    Evidence,
+    ParsedPaper,
+    Plan,
+    Verdict,
+)
 from claimlens.config import ClaimLensConfig, RunContext
 from claimlens.llm import LLMGateway
 
@@ -42,6 +49,10 @@ def _parse_evidence(data: Any) -> list[Evidence]:
     return [Evidence.model_validate(item) for item in data]
 
 
+def _parse_findings(data: Any) -> list[CodeFinding]:
+    return [CodeFinding.model_validate(item) for item in data]
+
+
 def _parse_verdicts(data: Any) -> list[Verdict]:
     return [Verdict.model_validate(item) for item in data]
 
@@ -54,7 +65,7 @@ def run_stage(
     """Run a single stage, loading missing inputs from saved artifacts.
 
     Args:
-        stage: One of ingest, claims, plan, sandbox, verify, report.
+        stage: One of ingest, claims, plan, sandbox, code_audit, verify, report.
         run: Per-run context.
         inputs: Explicit inputs keyed by artifact name
             (pdf_path, parsed, claims, plan, evidence, verdicts).
@@ -70,6 +81,7 @@ def run_stage(
     from claimlens.claims import extract as extract_mod
     from claimlens.plan import build as build_mod
     from claimlens.report import render as render_mod
+    from claimlens.verify import code_audit as audit_mod
 
     inputs = dict(inputs or {})
     run_dir = Path(run.run_dir)  # type: ignore[arg-type]
@@ -104,9 +116,30 @@ def run_stage(
         plan = inputs.get("plan")
         if plan is None:
             plan = _parse_plan(artifacts.load_artifact(run_dir, "plan"))
-        evidence = sandbox_mod.run_experiments(plan, run)
+        claims = inputs.get("claims")
+        if claims is None:
+            try:
+                claims = _parse_claims(artifacts.load_artifact(run_dir, "claims"))
+            except FileNotFoundError:
+                claims = []
+        # Blinded generation: the coding agent never receives reported values.
+        evidence = sandbox_mod.run_experiments(plan.blinded(claims), run)
         artifacts.save_artifact(run_dir, "sandbox", evidence)
         return evidence
+
+    if stage == "code_audit":
+        claims = inputs.get("claims")
+        if claims is None:
+            claims = _parse_claims(artifacts.load_artifact(run_dir, "claims"))
+        plan = inputs.get("plan")
+        if plan is None:
+            plan = _parse_plan(artifacts.load_artifact(run_dir, "plan"))
+        evidence = inputs.get("evidence")
+        if evidence is None:
+            evidence = _parse_evidence(artifacts.load_artifact(run_dir, "sandbox"))
+        findings = audit_mod.audit_code(claims, evidence, plan, run)
+        artifacts.save_artifact(run_dir, "code_audit", findings)
+        return findings
 
     if stage == "verify":
         claims = inputs.get("claims")

@@ -13,9 +13,10 @@ reaches 91.2% accuracy on dataset D versus 88.0% for baseline Y.
 | ingest | `claimlens.ingest.parse_paper(pdf_path: Path, run: RunContext) -> ParsedPaper` | PDF path, `RunContext` | `ParsedPaper`: title, 4 sections (`s1`–`s4`), table `t1` (text source), `table_mismatches` | `01_ingest.json` |
 | claims | `claimlens.claims.extract.extract_claims(parsed: ParsedPaper, run: RunContext) -> list[Claim]` | `ParsedPaper`, `RunContext` | `Claim` list: `c1` main claim (91.2 vs 88.0, `source_ref` "Section 4, Table 1"), `c2` baseline (88.0), `c3` gap (+3.2pp) | `02_claims.json` |
 | plan | `claimlens.plan.build.build_plan(parsed: ParsedPaper, claims: list[Claim], run: RunContext) -> Plan` | `ParsedPaper`, claims, `RunContext` | `Plan`: one `PlanItem` per claim (`scale_factor` 0.1 for the toy paper), `assumptions` with non-empty reasons | `03_plan.json` |
-| sandbox | `claimlens.sandbox.run_experiments(plan: Plan, run: RunContext) -> list[Evidence]` | `Plan`, `RunContext` | `Evidence` list: `e1` (claim `c1`, measured 90.8), `e2` (claim `c2`, measured 87.9) | `04_sandbox.json` |
-| verify | `claimlens.verify.verify_claims(claims, plan, evidence, run, runner=None) -> list[Verdict]` | claims, plan, evidence, `RunContext`, optional `runner: (Plan, RunContext) -> list[Evidence]` for Docker-free sensitivity reruns | `Verdict` list, one per claim: `c1`/`c2` partially replicated (scaled), `c3` untestable at this scale. Deterministic code only; no model calls | `05_verify.json` |
-| report | `claimlens.report.render.render_report(claims, plan, evidence, verdicts, run) -> Path` | claims, plan, evidence, verdicts, `RunContext` | Path to the rendered report; readable without opening other files | `06_report.json` (report path) |
+| sandbox | `claimlens.sandbox.run_experiments(plan: Plan, run: RunContext) -> list[Evidence]` | Blinded `Plan` (see below), `RunContext` | `Evidence` list: `e1` (claim `c1`, measured 90.8), `e2` (claim `c2`, measured 87.9) | `04_sandbox.json` |
+| code_audit | `claimlens.verify.code_audit.audit_code(claims, evidence, plan, run) -> list[CodeFinding]` | claims, evidence, unblinded `Plan`, `RunContext` | `CodeFinding` list over `runs/<run_id>/code/<claim_id>/iter_<n>/` | `05_code_audit.json` |
+| verify | `claimlens.verify.verify_claims(claims, plan, evidence, run, runner=None) -> list[Verdict]` | claims, plan, evidence, `RunContext`, optional `runner: (Plan, RunContext) -> list[Evidence]` for Docker-free sensitivity reruns | `Verdict` list, one per claim: `c1`/`c2` partially replicated (scaled), `c3` untestable at this scale. Deterministic code only; no model calls | `06_verify.json` |
+| report | `claimlens.report.render.render_report(claims, plan, evidence, verdicts, run) -> Path` | claims, plan, evidence, verdicts, `RunContext` | Path to the rendered report; readable without opening other files | `07_report.json` (report path) |
 
 ## Schema notes
 
@@ -31,11 +32,18 @@ reaches 91.2% accuracy on dataset D versus 88.0% for baseline Y.
   `measured_value`, `delta`. Records one sensitivity rerun where a
   single assumption was varied.
 - `Evidence`: `id`, `claim_id`, `method`, `measured_value`, `config`,
-  `logs_ref`, `scale_factor`.
+  `logs_ref`, `scale_factor`, `code_dir` (e.g. `code/c1`, relative to the
+  run directory) and `iterations` (saved code iterations for the claim).
 - `Verdict`: `claim_id`, `status` (`replicated` | `partially replicated` |
   `not replicated` | `untestable` | `untestable at this scale`),
   `rationale`, `evidence_ids`, `scaled`, `assumption_effects`
-  (list of `AssumptionEffect`, empty when there were no reruns).
+  (list of `AssumptionEffect`, empty when there were no reruns),
+  `reason` (why the claim is untestable, e.g. after a blocking code
+  finding) and `code_findings` (list of `CodeFinding`).
+- `CodeFinding`: `rule`, `severity` (`blocking` | `warning` | `info`),
+  `file` (path relative to the run directory), `line` (or null),
+  `message`, `advisory` (default true: LLM review findings never change
+  a verdict; deterministic checks set it false).
 - `ParsedPaper`: `title`, `sections` (`Section`: `id`, `title`, `text`,
   `page`), `tables` (`Table`: `id`, `caption`, `rows`, `source`, `page`),
   `table_mismatches` (`TableMismatch`: `table_id`, `row`, `col`,
@@ -48,7 +56,6 @@ reaches 91.2% accuracy on dataset D versus 88.0% for baseline Y.
   `status` is one of `started` | `progress` | `done` | `failed`.
 
 ## Value normalization
-
 `Claim.reported_value` is stored unit-free: percentages and percentage
 points are divided by 100 (91.2% -> 0.912); ratios and counts pass
 through. `tolerance` uses the same units. The verify stage must
@@ -60,12 +67,35 @@ normalize measured values the same way before comparing.
 page shown in the UI comes from that section or table. Claims pointing
 elsewhere are rejected at extraction.
 
+## Blinded generation
+
+The coding agent never receives reported values. The pipeline calls the
+sandbox only with `Plan.blinded(claims)`: a copy with every reported
+value removed from steps, scale reasons, string config values and
+assumption text (numeric hyperparameters are preserved). A test fails
+if any reported value appears in a prompt sent to the agent. Known
+limit: integral reported values with no fractional surface form are
+left in place to avoid destroying ordinary integers.
+
+## Code audit
+
+Every iteration of every claim's generated code is saved under
+`runs/<run_id>/code/<claim_id>/iter_<n>/` before it runs. The
+`code_audit` stage runs between `sandbox` and `verify` and calls
+`claimlens.verify.code_audit.audit_code(claims, evidence, plan, run)`.
+Deterministic checks (`advisory=False`) may mark a run invalid: a claim
+with a non-advisory `blocking` finding gets verdict `untestable` with a
+`reason`, never `replicated`. LLM review findings (`advisory=True`)
+never change a verdict. Fixture code lives in
+`tests/fixtures/code/<claim_id>/iter_<n>/`; the mock pipeline copies it
+into each mock run and returns fixture findings.
+
 ## Report outputs
 
 `render_report` writes `report.md` (summary table plus per-claim
 verdict, numbers, key assumptions, scale limits and log links) and
 `report.json` (the verdict list unchanged, each entry validating as a
-`Verdict`). The pipeline records the Markdown path in `06_report.json`.
+`Verdict`). The pipeline records the Markdown path in `07_report.json`.
 
 ## Examples and evaluation
 
@@ -110,7 +140,12 @@ with `demo=true` are seeded at server startup.
 State lives in `runs/<run_id>/state.json`; there is no database.
 `run_id` is a uuid hex string. Artifact names are whitelisted
 (`parsed`, `claims`, `plan`, `evidence`, `verdicts`, `report`, `paper`);
-file paths are never built from user input. CORS allows only the Vite
+file paths are never built from user input. Generated code is served
+separately: `GET /api/runs/{id}/code` returns the server-enumerated
+file tree per claim and iteration, and
+`GET /api/runs/{id}/code/{claim_id}/{iteration}/{file_index}` returns
+file content resolved only from that enumeration, never from a raw
+path. CORS allows only the Vite
 dev origin. `CLAIMLENS_MAX_CONCURRENT_RUNS` (default 1) bounds parallel
 runs; extra runs stay `queued`. The schema is generated with
 `claimlens export-openapi` into `docs/openapi.json`; the frontend

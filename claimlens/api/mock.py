@@ -15,13 +15,14 @@ import asyncio
 import json
 import os
 import random
+import shutil
 from pathlib import Path
 from typing import Any
 
 from claimlens import artifacts
 from claimlens.api import state as state_mod
 from claimlens.artifacts import STAGE_ORDER
-from claimlens.claims.schema import Claim, Evidence, ParsedPaper, Plan, Verdict
+from claimlens.claims.schema import Claim, CodeFinding, Evidence, ParsedPaper, Plan, Verdict
 from claimlens.config import RunContext
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures"
@@ -31,6 +32,7 @@ MOCK_FIXTURES: dict[str, str] = {
     "claims": "mock_claims.json",
     "plan": "mock_plan.json",
     "sandbox": "mock_evidence.json",
+    "code_audit": "mock_code_findings.json",
     "verify": "mock_verdicts.json",
 }
 
@@ -60,6 +62,11 @@ MOCK_PROGRESS: dict[str, list[str]] = {
         "agent: sensitivity rerun with seed 1 -> 82.4%",
         "agent: sensitivity rerun with noise rate 0.05 -> 84.0%",
     ],
+    "code_audit": [
+        "auditing generated code for 4 claims",
+        "1 blocking finding: no code for c4",
+        "1 advisory warning",
+    ],
     "verify": [
         "comparing measured vs reported numbers",
         "2 sensitivity reruns attached as assumption effects",
@@ -88,9 +95,18 @@ def load_mock_payload(stage: str) -> Any:
         return Plan.model_validate(data)
     if stage == "sandbox":
         return [Evidence.model_validate(item) for item in data]
+    if stage == "code_audit":
+        return [CodeFinding.model_validate(item) for item in data]
     if stage == "verify":
         return [Verdict.model_validate(item) for item in data]
     raise ValueError(f"No mock fixture for stage {stage!r}.")
+
+
+def seed_mock_code(run_dir: Path) -> None:
+    """Copy fixture generated code into ``runs/<run_id>/code/`` for the mock audit."""
+    src = FIXTURES_DIR / "code"
+    if src.is_dir():
+        shutil.copytree(src, run_dir / "code", dirs_exist_ok=True)
 
 
 def mock_delay() -> float:
@@ -130,6 +146,8 @@ async def replay_mock_pipeline(run: RunContext) -> None:
         else:
             payload = load_mock_payload(stage)
             artifacts.save_artifact(run_dir, stage, payload)
+            if stage == "code_audit":
+                seed_mock_code(run_dir)
         for message in MOCK_PROGRESS[stage]:
             if is_cancelled(run_dir):
                 return
@@ -175,6 +193,8 @@ def write_mock_run(
             artifacts.save_artifact(run_dir, "report", run_dir / state_mod.REPORT_FILENAME)
         else:
             artifacts.save_artifact(run_dir, stage, load_mock_payload(stage))
+            if stage == "code_audit":
+                seed_mock_code(run_dir)
         for message in MOCK_PROGRESS[stage]:
             run.emit(stage, "progress", message)
         state_mod.mark_stage(run_dir, stage, "done", ended=True)

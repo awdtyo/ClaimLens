@@ -147,7 +147,7 @@ def render_report(
 
     Writes ``report.md`` for readers and ``report.json`` holding the
     verdict list unchanged for the UI, and returns the Markdown path.
-    The pipeline records that path in ``06_report.json``.
+    The pipeline records that path in ``07_report.json``.
 
     Args:
         claims: Extracted claims under audit.

@@ -13,15 +13,16 @@ from typing import Any
 
 from pydantic import BaseModel
 
-STAGE_ORDER: list[str] = ["ingest", "claims", "plan", "sandbox", "verify", "report"]
+STAGE_ORDER: list[str] = ["ingest", "claims", "plan", "sandbox", "code_audit", "verify", "report"]
 
 STAGE_FILES: dict[str, str] = {
     "ingest": "01_ingest.json",
     "claims": "02_claims.json",
     "plan": "03_plan.json",
     "sandbox": "04_sandbox.json",
-    "verify": "05_verify.json",
-    "report": "06_report.json",
+    "code_audit": "05_code_audit.json",
+    "verify": "06_verify.json",
+    "report": "07_report.json",
 }
 
 

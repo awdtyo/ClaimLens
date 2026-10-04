@@ -18,5 +18,5 @@ def test_pipeline_on_toy_paper(tmp_path: Path) -> None:
     toy_pdf = tmp_path / "toy_paper.pdf"
     toy_pdf.write_bytes(b"%PDF-1.4 toy fixture")
     run = run_pipeline(pdf_path=toy_pdf, run_id="toy", runs_root=tmp_path / "runs")
-    report_file = Path(run.run_dir) / "06_report.json"  # type: ignore[arg-type]
+    report_file = Path(run.run_dir) / "07_report.json"  # type: ignore[arg-type]
     assert report_file.exists()

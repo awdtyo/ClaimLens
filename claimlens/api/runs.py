@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,39 @@ class RunDetail(RunSummary):
 
     error: str | None = None
     stages: dict[str, StageState] = {}
+
+
+class CodeFile(BaseModel):
+    """One generated code file, addressed by server-assigned index."""
+
+    index: int
+    name: str
+    size: int
+
+
+class CodeIteration(BaseModel):
+    """One saved iteration of a claim's generated code."""
+
+    iteration: int
+    files: list[CodeFile] = []
+
+
+class CodeClaim(BaseModel):
+    """Generated code for one claim across iterations."""
+
+    claim_id: str
+    iterations: list[CodeIteration] = []
+
+
+class CodeTree(BaseModel):
+    """File tree of generated code, enumerated by the server."""
+
+    run_id: str
+    claims: list[CodeClaim] = []
+
+
+CODE_DIRNAME = "code"
+_ITER_DIR_RE = re.compile(r"^iter_(\d+)$")
 
 
 ARTIFACT_FILES: dict[str, tuple[str, str]] = {
@@ -287,6 +321,78 @@ async def stream_run_events(request: Request, run_id: str) -> StreamingResponse:
             unsubscribe(run_id, queue)
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+def _enumerate_code(run_dir: Path) -> list[tuple[str, int, int, str, Path]]:
+    """Enumerate generated code server-side: ``(claim_id, iteration, index, name, path)``.
+
+    Only regular files are listed; hidden files and symlinks are
+    skipped so a crafted run directory cannot escape ``code/``.
+    """
+    entries: list[tuple[str, int, int, str, Path]] = []
+    code_dir = run_dir / CODE_DIRNAME
+    if not code_dir.is_dir():
+        return entries
+    claim_dirs = sorted(
+        (p for p in code_dir.iterdir() if p.is_dir() and not p.name.startswith(".")),
+        key=lambda p: p.name,
+    )
+    for claim_dir in claim_dirs:
+        iter_dirs = sorted(
+            (p for p in claim_dir.iterdir() if p.is_dir()),
+            key=lambda p: p.name,
+        )
+        for iter_dir in iter_dirs:
+            match = _ITER_DIR_RE.fullmatch(iter_dir.name)
+            if match is None:
+                continue
+            files = sorted(
+                (
+                    p
+                    for p in iter_dir.iterdir()
+                    if p.is_file() and not p.is_symlink() and not p.name.startswith(".")
+                ),
+                key=lambda p: p.name,
+            )
+            for index, path in enumerate(files):
+                entries.append((claim_dir.name, int(match.group(1)), index, path.name, path))
+    return entries
+
+
+@router.get("/runs/{run_id}/code", response_model=CodeTree)
+def get_run_code(request: Request, run_id: str) -> dict[str, Any]:
+    """File tree of generated code per claim and iteration (server-enumerated)."""
+    run_dir = _resolve_run_dir(request, run_id)
+    entries = _enumerate_code(run_dir)
+    claims: list[dict[str, Any]] = []
+    for claim_id in sorted({cid for cid, _, _, _, _ in entries}):
+        iterations: list[dict[str, Any]] = []
+        numbers = sorted({it for cid, it, _, _, _ in entries if cid == claim_id})
+        for iteration in numbers:
+            files = [
+                {"index": index, "name": name, "size": path.stat().st_size}
+                for cid, it, index, name, path in entries
+                if cid == claim_id and it == iteration
+            ]
+            iterations.append({"iteration": iteration, "files": files})
+        claims.append({"claim_id": claim_id, "iterations": iterations})
+    return {"run_id": run_id, "claims": claims}
+
+
+@router.get("/runs/{run_id}/code/{claim_id}/{iteration}/{file_index}")
+def get_run_code_file(
+    request: Request, run_id: str, claim_id: str, iteration: int, file_index: int
+) -> FileResponse:
+    """File content from the server-enumerated code tree.
+
+    Files resolve only from the enumeration above, never from a raw
+    path, so ``..`` segments and unknown names return 404.
+    """
+    run_dir = _resolve_run_dir(request, run_id)
+    for cid, it, index, name, path in _enumerate_code(run_dir):
+        if cid == claim_id and it == iteration and index == file_index:
+            return FileResponse(path, media_type="text/plain", filename=name)
+    raise HTTPException(status_code=404, detail="Unknown code file.")
 
 
 @router.get("/runs/{run_id}/{artifact}")

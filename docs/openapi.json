@@ -209,6 +209,111 @@
         }
       }
     },
+    "/api/runs/{run_id}/code": {
+      "get": {
+        "summary": "Get Run Code",
+        "description": "File tree of generated code per claim and iteration (server-enumerated).",
+        "operationId": "get_run_code_api_runs__run_id__code_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeTree"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/code/{claim_id}/{iteration}/{file_index}": {
+      "get": {
+        "summary": "Get Run Code File",
+        "description": "File content from the server-enumerated code tree.\n\nFiles resolve only from the enumeration above, never from a raw\npath, so ``..`` segments and unknown names return 404.",
+        "operationId": "get_run_code_file_api_runs__run_id__code__claim_id___iteration___file_index__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "claim_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Claim Id"
+            }
+          },
+          {
+            "name": "iteration",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Iteration"
+            }
+          },
+          {
+            "name": "file_index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "File Index"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{run_id}/{artifact}": {
       "get": {
         "summary": "Get Run Artifact",
@@ -312,6 +417,96 @@
           "file"
         ],
         "title": "Body_create_run_api_runs_post"
+      },
+      "CodeClaim": {
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "title": "Claim Id"
+          },
+          "iterations": {
+            "items": {
+              "$ref": "#/components/schemas/CodeIteration"
+            },
+            "type": "array",
+            "title": "Iterations",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "claim_id"
+        ],
+        "title": "CodeClaim",
+        "description": "Generated code for one claim across iterations."
+      },
+      "CodeFile": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "name",
+          "size"
+        ],
+        "title": "CodeFile",
+        "description": "One generated code file, addressed by server-assigned index."
+      },
+      "CodeIteration": {
+        "properties": {
+          "iteration": {
+            "type": "integer",
+            "title": "Iteration"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/CodeFile"
+            },
+            "type": "array",
+            "title": "Files",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "iteration"
+        ],
+        "title": "CodeIteration",
+        "description": "One saved iteration of a claim's generated code."
+      },
+      "CodeTree": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/CodeClaim"
+            },
+            "type": "array",
+            "title": "Claims",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "title": "CodeTree",
+        "description": "File tree of generated code, enumerated by the server."
       },
       "ConfigInfo": {
         "properties": {

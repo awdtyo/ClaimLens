@@ -27,6 +27,10 @@ These apply to every change. If a task seems to require breaking one, stop and a
 7. **Sandbox only.** Generated experiment code runs inside Docker, never on the host.
 8. **Table numbers are cross-checked.** Tables are read from the PDF text layer and from page images, and any mismatch is flagged, not silently resolved.
 9. **The frontend displays backend verdicts only.** It never computes or changes a verdict.
+10. **Blinded generation.** The coding agent never receives reported values. `Plan.blinded()` returns a copy with every reported value removed, and the sandbox is called only with the blinded plan.
+11. **Generated code is a saved artifact.** Every iteration of every claim's code is saved under `runs/<id>/code/<claim_id>/iter_<n>/` before it runs.
+12. **Code audit happens before the verdict.** Deterministic checks may mark a run invalid; LLM review is advisory only and never changes a verdict.
+13. **Blocking findings invalidate.** A run with a blocking finding gets status `untestable` with a reason, never `replicated`.
 
 ## Models and configuration
 
