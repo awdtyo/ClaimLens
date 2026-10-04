@@ -36,10 +36,7 @@ MOCK_FIXTURES: dict[str, str] = {
 
 MOCK_REPORT_FIXTURE = "mock_report.md"
 
-PLACEHOLDER_PDF = (
-    b"%PDF-1.4\n%mock placeholder\n1 0 obj\n<<>>\nendobj\n"
-    b"trailer\n<<>>\n%%EOF\n"
-)
+PLACEHOLDER_PDF = b"%PDF-1.4\n%mock placeholder\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 
 MOCK_PROGRESS: dict[str, list[str]] = {
     "ingest": [
@@ -203,6 +200,8 @@ def seed_demo_runs(runs_root: Path | str) -> list[str]:
     for index in range(needed):
         run_id = new_run_id()
         run_dir = run_dir_for(root, run_id)
-        write_mock_run(run_dir, run_id, filename=f"demo-paper-{len(seeded) + index + 1}.pdf", demo=True)
+        write_mock_run(
+            run_dir, run_id, filename=f"demo-paper-{len(seeded) + index + 1}.pdf", demo=True
+        )
         seeded.append(run_id)
     return seeded

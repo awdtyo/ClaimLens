@@ -35,9 +35,7 @@ def client(mock_env: None, tmp_path: Path):  # type: ignore[no-untyped-def]
 
 
 def upload_pdf(client: TestClient, payload: bytes = PDF_BYTES) -> str:
-    resp = client.post(
-        "/api/runs", files={"file": ("paper.pdf", payload, "application/pdf")}
-    )
+    resp = client.post("/api/runs", files={"file": ("paper.pdf", payload, "application/pdf")})
     assert resp.status_code == 202, resp.text
     run_id = resp.json()["run_id"]
     assert UUID_RE.fullmatch(run_id)
@@ -69,16 +67,12 @@ def test_config_exposes_no_keys(client: TestClient) -> None:
 
 
 def test_upload_rejects_wrong_content_type(client: TestClient) -> None:
-    resp = client.post(
-        "/api/runs", files={"file": ("paper.txt", b"hello", "text/plain")}
-    )
+    resp = client.post("/api/runs", files={"file": ("paper.txt", b"hello", "text/plain")})
     assert resp.status_code == 415
 
 
 def test_upload_rejects_bad_magic(client: TestClient) -> None:
-    resp = client.post(
-        "/api/runs", files={"file": ("paper.pdf", b"not a pdf", "application/pdf")}
-    )
+    resp = client.post("/api/runs", files={"file": ("paper.pdf", b"not a pdf", "application/pdf")})
     assert resp.status_code == 400
 
 
@@ -142,7 +136,7 @@ def test_sse_streams_events_to_completion(client: TestClient) -> None:
             assert time.time() < deadline, "SSE stream did not finish in time"
             if not line or not line.startswith("data:"):
                 continue
-            event = json.loads(line[len("data:"):])
+            event = json.loads(line[len("data:") :])
             stages.add(event["stage"])
             if event["stage"] == "sandbox" and "agent:" in (event["message"] or ""):
                 agent_lines += 1

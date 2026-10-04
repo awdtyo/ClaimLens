@@ -43,9 +43,7 @@ def append_event(
         ValueError: If ``status`` is not a known event status.
     """
     if status not in VALID_STATUSES:
-        raise ValueError(
-            f"Unknown event status {status!r}. Choose from {VALID_STATUSES}."
-        )
+        raise ValueError(f"Unknown event status {status!r}. Choose from {VALID_STATUSES}.")
     event: dict[str, Any] = {
         "ts": datetime.now(UTC).isoformat(),
         "run_id": run_id,

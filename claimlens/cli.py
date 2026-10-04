@@ -80,9 +80,7 @@ def serve(
 
 @app.command(name="export-openapi")
 def export_openapi(
-    out: Path = typer.Option(
-        Path("docs/openapi.json"), "--out", help="Where to write the schema."
-    ),
+    out: Path = typer.Option(Path("docs/openapi.json"), "--out", help="Where to write the schema."),
 ) -> None:
     """Write the API schema to docs/openapi.json for the frontend."""
     import json

@@ -219,9 +219,7 @@ async def create_run(request: Request, file: UploadFile = File(...)) -> dict[str
 
 
 @router.get("/runs", response_model=list[RunSummary])
-def get_runs(
-    request: Request, demo: bool | None = Query(default=None)
-) -> list[dict[str, Any]]:
+def get_runs(request: Request, demo: bool | None = Query(default=None)) -> list[dict[str, Any]]:
     """List runs, oldest first. ``?demo=true`` shows only demo runs."""
     runs = [_summarize(s) for s in list_runs(request.app.state.runs_root)]
     if demo is None:
