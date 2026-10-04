@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from claimlens.claims.schema import Claim, Evidence
+import pytest
+
+from claimlens.claims.schema import Assumption, Claim, Evidence, Plan, PlanItem
 from claimlens.verify import compare as compare_mod
+from claimlens.verify import sensitivity as sensitivity_mod
 
 
 def _claim(**overrides) -> Claim:  # type: ignore[no-untyped-def]
@@ -111,3 +114,117 @@ def test_compare_module_makes_no_model_calls() -> None:
     source = Path(compare_mod.__file__).read_text(encoding="utf-8").lower()
     assert "llm" not in source
     assert "complete(" not in source
+
+
+# -- sensitivity (fake runner, no Docker) --------------------------------------
+
+
+def _sensitivity_plan() -> Plan:
+    return Plan(
+        items=[
+            PlanItem(claim_id="c3", steps=["Train under noise"], scale_factor=1.0, config={}),
+        ],
+        assumptions=[
+            Assumption(
+                id="a1",
+                detail="Random seed",
+                value_chosen="0",
+                reason="Fixed seed in the paper.",
+                confidence="high",
+            ),
+            Assumption(
+                id="a2",
+                detail="Label noise rate",
+                value_chosen="0.1",
+                reason="Paper says 10% of labels flip.",
+                confidence="medium",
+            ),
+        ],
+    )
+
+
+def _sensitivity_claim() -> Claim:
+    return Claim(
+        id="c3",
+        text="Method X keeps accuracy under noise.",
+        source_ref="s4",
+        metric="accuracy_noisy",
+        reported_value=0.895,
+        tolerance=0.01,
+    )
+
+
+def _sensitivity_runner(plan: Plan, run: object) -> list[Evidence]:
+    values = {assumption.value_chosen for assumption in plan.assumptions}
+    if "1" in values:
+        measured = 0.824
+    elif "0.05" in values:
+        measured = 0.84
+    else:  # pragma: no cover - variants always change one assumption.
+        measured = 0.821
+    return [
+        Evidence(id="e3", claim_id="c3", method="fake", measured_value=measured),
+    ]
+
+
+def test_alternate_values_are_deterministic() -> None:
+    assert sensitivity_mod.alternate_value(_sensitivity_plan().assumptions[0]) == "1"
+    assert sensitivity_mod.alternate_value(_sensitivity_plan().assumptions[1]) == "0.05"
+
+
+def test_sensitivity_ranks_effects_by_absolute_delta(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("sensitivity", runs_root=tmp_path / "runs")
+    base = [Evidence(id="e3", claim_id="c3", method="fake", measured_value=0.821)]
+    effects = sensitivity_mod.run_sensitivity(
+        _sensitivity_claim(), _sensitivity_plan(), base, run, _sensitivity_runner
+    )
+    assert [effect.assumption_id for effect in effects] == ["a2", "a1"]
+    assert effects[0].alt_value == "0.05"
+    assert effects[0].measured_value == pytest.approx(0.84)
+    assert effects[0].delta == pytest.approx(0.019)
+    assert effects[1].delta == pytest.approx(0.003)
+
+
+def test_sensitivity_respects_max_reruns(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("sensitivity-cap", runs_root=tmp_path / "runs")
+    base = [Evidence(id="e3", claim_id="c3", method="fake", measured_value=0.821)]
+    effects = sensitivity_mod.run_sensitivity(
+        _sensitivity_claim(), _sensitivity_plan(), base, run, _sensitivity_runner, max_reruns=1
+    )
+    assert [effect.assumption_id for effect in effects] == ["a1"]
+
+
+def test_sensitivity_skips_reruns_without_measurements(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("sensitivity-empty", runs_root=tmp_path / "runs")
+    base = [Evidence(id="e3", claim_id="c3", method="fake", measured_value=0.821)]
+    effects = sensitivity_mod.run_sensitivity(
+        _sensitivity_claim(), _sensitivity_plan(), base, run, lambda plan, run: []
+    )
+    assert effects == []
+
+
+def test_sensitivity_needs_a_baseline_measurement(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("sensitivity-nobase", runs_root=tmp_path / "runs")
+    calls: list[Plan] = []
+    effects = sensitivity_mod.run_sensitivity(
+        _sensitivity_claim(),
+        _sensitivity_plan(),
+        [],
+        run,
+        lambda plan, run: calls.append(plan) or [],
+    )
+    assert effects == []
+    assert calls == []
+
+
+def test_sensitivity_module_makes_no_model_calls() -> None:
+    source = Path(sensitivity_mod.__file__).read_text(encoding="utf-8").lower()
+    assert "llm" not in source
