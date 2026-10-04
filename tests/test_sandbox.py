@@ -321,3 +321,48 @@ def test_failed_runs_never_invent_a_value(tmp_path: Path) -> None:
     )
     assert evidence.measured_value is None
     assert evidence.claim_id == "c1"
+
+
+# -- run_experiments wiring (no Docker) ---------------------------------------
+
+
+def test_run_experiments_runs_every_item_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import claimlens.sandbox as sandbox_mod
+    from claimlens.claims.schema import Evidence, Plan
+
+    run = make_run_context("sandbox-wiring", runs_root=tmp_path / "runs")
+    plan = Plan(items=[_item(), _item().model_copy(update={"claim_id": "c2"})])
+    seen: list[str] = []
+
+    def fake_agent(claim_id: str, item: Any, run: Any) -> Evidence:
+        seen.append(claim_id)
+        return Evidence(
+            id=f"e_{claim_id}",
+            claim_id=claim_id,
+            method="fake",
+            measured_value=0.5,
+            scale_factor=item.scale_factor,
+        )
+
+    monkeypatch.setattr(sandbox_mod, "run_agent_for_claim", fake_agent)
+    evidence = sandbox_mod.run_experiments(plan, run)
+    assert [item.claim_id for item in evidence] == ["c1", "c2"]
+    assert [item.id for item in evidence] == ["e_c1", "e_c2"]
+    assert seen == ["c1", "c2"]
+    events = [
+        json.loads(line)
+        for line in (Path(run.run_dir) / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    stages = [(event["stage"], event["status"]) for event in events if event["stage"] == "sandbox"]
+    assert stages[0] == ("sandbox", "started")
+    assert stages[-1] == ("sandbox", "done")
+
+
+def test_run_experiments_empty_plan(tmp_path: Path) -> None:
+    import claimlens.sandbox as sandbox_mod
+    from claimlens.claims.schema import Plan
+
+    run = make_run_context("sandbox-empty", runs_root=tmp_path / "runs")
+    assert sandbox_mod.run_experiments(Plan(), run) == []
