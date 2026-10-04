@@ -326,18 +326,21 @@ def run_agent_for_claim(
                         )
                     if writes_since_run >= 3 and written.endswith(".py"):
                         # The model refines instead of running; guarantee
-                        # progress by executing the latest script. The model
-                        # still owns the code and the final value.
+                        # progress by executing the main script (the largest
+                        # .py: the experiment, not helper snippets). The
+                        # model still owns the code and the final value.
+                        candidates = sorted(workdir.glob("*.py"), key=lambda p: p.stat().st_size)
+                        target = candidates[-1].name if candidates else written
                         run.emit(
                             "sandbox",
                             "progress",
-                            f"{claim_id}: auto-running {written}",
+                            f"{claim_id}: auto-running {target}",
                             {"claim_id": claim_id, "tool": "run_in_sandbox"},
                         )
                         worklist.append(
                             {
                                 "name": "run_in_sandbox",
-                                "arguments": {"command": ["python", written]},
+                                "arguments": {"command": ["python", target]},
                             }
                         )
                 if name == "run_in_sandbox":
