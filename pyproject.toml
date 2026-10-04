@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claimlens"
+version = "0.0.0"
+description = "Audit computer science research papers claim by claim."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2",
+    "pymupdf",
+    "httpx",
+    "docker",
+    "typer",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+claimlens = "claimlens.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["claimlens*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# B008 conflicts with typer's documented CLI pattern (typer.Argument/Option
+# as parameter defaults).
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
