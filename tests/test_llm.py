@@ -43,28 +43,5 @@ def test_chunk_text_respects_budget() -> None:
     assert "".join(chunks).replace("\n", "") == text.replace("\n", "")
 
 
-def test_remaining_stubs_raise_not_implemented(tmp_path: Path) -> None:
-    """Sandbox/verify stages are Part 2's and still raise (Task 5 frontier)."""
-    from claimlens import sandbox as sandbox_mod
-    from claimlens import verify as verify_mod
-    from claimlens.config import RunContext
-    from claimlens.pipeline import make_run_context
-
-    run = make_run_context("stub-check", runs_root=tmp_path)
-    assert isinstance(run, RunContext)
-    try:
-        sandbox_mod.run_experiments(None, run)  # type: ignore[arg-type]
-    except NotImplementedError:
-        pass
-    else:
-        raise AssertionError("sandbox.run_experiments should raise NotImplementedError")
-    try:
-        verify_mod.verify_claims([], None, [], run)  # type: ignore[arg-type]
-    except NotImplementedError:
-        pass
-    else:
-        raise AssertionError("verify_claims should raise NotImplementedError")
-
-
 def test_fixtures_dir_has_fake_responses(fixtures_dir: Path) -> None:
     assert (fixtures_dir / "fake_llm_responses.json").exists()
