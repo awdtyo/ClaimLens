@@ -17,6 +17,8 @@ class ClaimLensConfig:
     max_context: int = 30000
     gemini_api_key: str = ""
     openrouter_api_key: str = ""
+    max_concurrent_runs: int = 1
+    mock_pipeline: bool = False
 
     @classmethod
     def from_env(cls) -> ClaimLensConfig:
@@ -29,6 +31,8 @@ class ClaimLensConfig:
             max_context=int(os.environ.get("CLAIMLENS_MAX_CONTEXT", "30000")),
             gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
             openrouter_api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+            max_concurrent_runs=int(os.environ.get("CLAIMLENS_MAX_CONCURRENT_RUNS", "1")),
+            mock_pipeline=os.environ.get("CLAIMLENS_MOCK_PIPELINE", "0") == "1",
         )
 
     def model_for_role(self, role: str) -> str:
@@ -56,3 +60,22 @@ class RunContext:
     run_dir: object  # pathlib.Path at runtime
     config: ClaimLensConfig = field(default_factory=ClaimLensConfig)
     llm: object | None = None
+
+    def emit(
+        self,
+        stage: str,
+        status: str,
+        message: str | None = None,
+        data: object = None,
+    ) -> dict:
+        """Record a run event and notify live subscribers.
+
+        Appends ``{"ts", "run_id", "stage", "status", "message", "data"}``
+        to ``runs/<run_id>/events.jsonl``. ``status`` is one of
+        ``started``, ``progress``, ``done``, ``failed``.
+        """
+        from pathlib import Path
+
+        from claimlens.events import append_event
+
+        return append_event(Path(self.run_dir), self.run_id, stage, status, message, data)  # type: ignore[arg-type]

@@ -20,15 +20,32 @@ class Claim(BaseModel):
     source_ref: str
     metric: str | None = None
     reported_value: float | None = None
+    page: int | None = None
 
 
 class Assumption(BaseModel):
     """A detail the paper omits that the agent fills in."""
 
+    id: str
     detail: str
     value_chosen: str
     reason: str
     confidence: Literal["low", "medium", "high"]
+
+
+class AssumptionEffect(BaseModel):
+    """How one assumption changes a measured result.
+
+    Records a sensitivity rerun where a single assumption was varied:
+    the alternative value tried, the measured value under it, and the
+    delta versus the main measurement.
+    """
+
+    assumption_id: str
+    claim_id: str
+    alt_value: str
+    measured_value: float | None = None
+    delta: float | None = None
 
 
 class Evidence(BaseModel):
@@ -57,6 +74,7 @@ class Verdict(BaseModel):
     rationale: str
     evidence_ids: list[str] = Field(default_factory=list)
     scaled: bool = False
+    assumption_effects: list[AssumptionEffect] = Field(default_factory=list)
 
 
 class Section(BaseModel):
@@ -65,6 +83,7 @@ class Section(BaseModel):
     id: str
     title: str
     text: str
+    page: int | None = None
 
 
 class Table(BaseModel):
@@ -74,6 +93,7 @@ class Table(BaseModel):
     caption: str = ""
     rows: list[list[str]] = Field(default_factory=list)
     source: Literal["text", "vision"]
+    page: int | None = None
 
 
 class TableMismatch(BaseModel):
