@@ -45,4 +45,42 @@ describe("mock backend smoke", () => {
     const claims = (await get(`/api/runs/${runId}/claims`)) as unknown[];
     expect(claims.length).toBe(verdicts.length);
   });
+
+  it("serves generated code per claim with file fetch by index", async (ctx) => {
+    let runId: string;
+    try {
+      const demos = (await get("/api/runs?demo=true")) as { run_id: string }[];
+      expect(demos.length).toBeGreaterThan(0);
+      runId = demos[0].run_id;
+    } catch {
+      ctx.skip();
+      return;
+    }
+    let tree: {
+      run_id: string;
+      claims: {
+        claim_id: string;
+        iterations: { iteration: number; files: { index: number; name: string; size: number }[] }[];
+      }[];
+    };
+    try {
+      tree = (await get(`/api/runs/${runId}/code`)) as typeof tree;
+    } catch {
+      // Backend without the code-audit patch has no /code endpoints.
+      ctx.skip();
+      return;
+    }
+    expect(tree.run_id).toBe(runId);
+    expect(tree.claims.length).toBeGreaterThan(0);
+    const withFiles = tree.claims.find((c) => c.iterations.some((it) => it.files.length > 0));
+    expect(withFiles).toBeDefined();
+    const iteration = withFiles!.iterations.find((it) => it.files.length > 0)!;
+    // Files are fetched by server-assigned index, never by path.
+    const res = await fetch(
+      `${BASE}/api/runs/${runId}/code/${withFiles!.claim_id}/${iteration.iteration}/${iteration.files[0].index}`,
+    );
+    expect(res.ok).toBe(true);
+    const body = await res.text();
+    expect(body.length).toBeGreaterThan(0);
+  });
 });
