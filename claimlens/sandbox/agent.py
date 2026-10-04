@@ -160,6 +160,7 @@ def run_agent_for_claim(
     workdir = Path(tmp.name)
     tools = SandboxTools(workdir, run_fn=run_fn)
     iterations = 0
+    writes_since_run = 0
     last_stdout = ""
     last_exit: int | None = None
 
@@ -312,12 +313,17 @@ def run_agent_for_claim(
                 if outcome.get("stdout") or outcome.get("stderr"):
                     shown["stdout_tail"] = _short(outcome.get("stdout", ""))
                     shown["stderr_tail"] = _short(outcome.get("stderr", ""))
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": f"Tool {name} result: {json.dumps(shown, default=str)}",
-                    }
-                )
+                observation = f"Tool {name} result: {json.dumps(shown, default=str)}"
+                if name == "write_file" and outcome.get("ok"):
+                    writes_since_run += 1
+                    if writes_since_run >= 2:
+                        observation += (
+                            f" IMPORTANT: you have written {writes_since_run} files "
+                            "without running anything. Call run_in_sandbox NOW."
+                        )
+                if name == "run_in_sandbox":
+                    writes_since_run = 0
+                messages.append({"role": "user", "content": observation})
 
         run.emit(
             "sandbox", "progress", f"{claim_id}: iteration cap reached", {"claim_id": claim_id}

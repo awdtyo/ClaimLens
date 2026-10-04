@@ -344,6 +344,19 @@ def test_writes_are_snapshotted_even_without_a_run(tmp_path: Path) -> None:
     assert (Path(run.run_dir) / "code" / "c1" / "iter_1" / "exp.py").exists()
 
 
+def test_consecutive_writes_trigger_run_nudge(tmp_path: Path) -> None:
+    run = make_run_context("agent-nudge", runs_root=tmp_path / "runs")
+    write_call = {
+        "tool_calls": [{"name": "write_file", "arguments": {"path": "a.py", "content": "x"}}]
+    }
+    llm = ScriptedLLM([write_call] * 3)
+    agent_mod.run_agent_for_claim(
+        "c1", _item(), run, llm=llm, run_fn=_failing_run, max_iterations=3
+    )
+    nudged = [prompt for prompt in llm.prompts if "Call run_in_sandbox NOW" in prompt]
+    assert nudged, "after two writeless runs the loop must demand a run"
+
+
 def test_code_written_events_carry_names_not_contents(tmp_path: Path) -> None:
     run = make_run_context("agent-code-events", runs_root=tmp_path / "runs")
     llm = ScriptedLLM(
