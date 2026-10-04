@@ -1,15 +1,20 @@
 """Agent loop with function calling (Stage 5).
 
-One loop per plan item with a hard iteration cap. The agent can only
-return measured values, which become :class:`Evidence`; it can never
-mark a claim done. Failed or capped runs return ``Evidence`` with
+One loop per plan item with a hard iteration cap. The agent receives
+only the blinded plan item (``Plan.blinded`` strips reported values) —
+never claims, paper text, or previous verdicts. It can only return
+measured values, which become :class:`Evidence`; it can never mark a
+claim done. Failed or capped runs return ``Evidence`` with
 ``measured_value=None`` and a failure note in ``method`` — never an
 invented number.
 
 Every iteration's code is snapshotted to
-``runs/<run_id>/code/<claim_id>/iter_<n>/`` *before* it runs, and every
-step is reported via ``run.emit("sandbox", "progress", ...)`` with short
-messages that never carry API keys or full file contents.
+``runs/<run_id>/code/<claim_id>/iter_<n>/`` *before* it runs
+(``Evidence.code_dir`` and ``Evidence.iterations`` record this), every
+file write emits a ``code_written`` event carrying claim id, iteration
+and file name only, and every step is reported via
+``run.emit("sandbox", "progress", ...)`` with short messages that never
+carry API keys or full file contents.
 """
 
 from __future__ import annotations
@@ -122,7 +127,9 @@ def run_agent_for_claim(
 
     Args:
         claim_id: Claim under reproduction.
-        item: Blinded plan item (steps, scale factor, config).
+        item: Blinded plan item (steps, scale factor, config). Must come
+            from ``Plan.blinded``: nothing else carrying reported values
+            (claims, paper text, previous verdicts) is passed in.
         run: Per-run context (code snapshots and logs land in run_dir).
         llm: Model gateway; defaults to ``run.llm``. Tests inject a
             scripted stub with the same ``complete(...)`` signature.
@@ -229,6 +236,16 @@ def run_agent_for_claim(
                     outcome = tools.dispatch(name, args)
                 except Exception as e:  # noqa: BLE001 - tool errors are observations, not crashes.
                     outcome = {"ok": False, "error": _short(e)}
+                if name == "write_file" and outcome.get("ok"):
+                    # File name only: contents never leave the workdir in events.
+                    fallback = args.get("path", "") if isinstance(args, dict) else ""
+                    written = str(outcome.get("path", fallback))
+                    run.emit(
+                        "code_written",
+                        "progress",
+                        f"{claim_id}: wrote {written} (iter {iterations + 1})",
+                        {"claim_id": claim_id, "iter": iterations + 1, "file": written},
+                    )
                 if name == "run_in_sandbox":
                     last_exit = int(outcome.get("exit_code", -1))
                     last_stdout = str(outcome.get("stdout", ""))
