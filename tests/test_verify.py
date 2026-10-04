@@ -259,6 +259,21 @@ def test_verify_claims_matches_contract_shape(tmp_path: Path, fixtures_dir: Path
 
     run = make_run_context("verify-toy", runs_root=tmp_path / "runs")
     claims, plan, evidence = _toy_inputs(fixtures_dir)
+    run_dir = Path(run.run_dir)
+    for cid in ("c1", "c2", "c3"):
+        _write_claim_code(run_dir, cid)
+    evidence = [
+        evidence[0].model_copy(update={"code_dir": "code/c1", "iterations": 1}),
+        evidence[1].model_copy(update={"code_dir": "code/c2", "iterations": 1}),
+        Evidence(
+            id="e_c3",
+            claim_id="c3",
+            method="docker",
+            measured_value=None,
+            code_dir="code/c3",
+            iterations=1,
+        ),
+    ]
     verdicts = verify_claims(claims, plan, evidence, run)
     by_claim = {verdict.claim_id: verdict for verdict in verdicts}
     assert [verdict.claim_id for verdict in verdicts] == ["c1", "c2", "c3"]
@@ -270,14 +285,32 @@ def test_verify_claims_matches_contract_shape(tmp_path: Path, fixtures_dir: Path
     assert by_claim["c3"].evidence_ids == []
 
 
+def _write_claim_code(run_dir: Path, cid: str, snippet: str | None = None) -> None:
+    dest = run_dir / "code" / cid / "iter_1" / "train.py"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(snippet if snippet is not None else BENIGN_TRAIN, encoding="utf-8")
+
+
+def _coded(cid: str, measured: float | None, eid: str | None = None) -> Evidence:
+    return Evidence(
+        id=eid or f"e_{cid}",
+        claim_id=cid,
+        method="docker",
+        measured_value=measured,
+        code_dir=f"code/{cid}",
+        iterations=1,
+    )
+
+
 def test_verify_claims_triggers_sensitivity_on_full_scale_mismatch(tmp_path: Path) -> None:
     from claimlens.pipeline import make_run_context
 
     run = make_run_context("verify-sens", runs_root=tmp_path / "runs")
+    _write_claim_code(Path(run.run_dir), "c3")
     verdicts = verify_claims(
         [_sensitivity_claim()],
         _sensitivity_plan(),
-        [_evidence(0.821, claim_id="c3", eid="e3")],
+        [_coded("c3", 0.821, "e3")],
         run,
         _sensitivity_runner,
     )
@@ -289,10 +322,11 @@ def test_verify_claims_without_runner_has_no_effects(tmp_path: Path) -> None:
     from claimlens.pipeline import make_run_context
 
     run = make_run_context("verify-norunner", runs_root=tmp_path / "runs")
+    _write_claim_code(Path(run.run_dir), "c3")
     verdicts = verify_claims(
         [_sensitivity_claim()],
         _sensitivity_plan(),
-        [_evidence(0.821, claim_id="c3", eid="e3")],
+        [_coded("c3", 0.821, "e3")],
         run,
     )
     assert verdicts[0].status == "not replicated"
@@ -303,12 +337,13 @@ def test_verify_claims_scaled_mismatch_skips_sensitivity(tmp_path: Path) -> None
     from claimlens.pipeline import make_run_context
 
     run = make_run_context("verify-scaled", runs_root=tmp_path / "runs")
+    _write_claim_code(Path(run.run_dir), "c3")
     plan = _sensitivity_plan().model_copy(update={"items": []})
     plan.items = [PlanItem(claim_id="c3", steps=["Train under noise"], scale_factor=0.1, config={})]
     verdicts = verify_claims(
         [_sensitivity_claim()],
         plan,
-        [_evidence(0.70, claim_id="c3", eid="e3")],
+        [_coded("c3", 0.70, "e3")],
         run,
         _sensitivity_runner,
     )
@@ -709,3 +744,113 @@ def test_review_without_gateway_returns_no_findings(tmp_path: Path) -> None:
     run, claims, evidence, plan = _review_setup(tmp_path)
     run_nollm = RunContext(run_id=run.run_id, run_dir=run.run_dir, config=run.config, llm=None)
     assert code_review_mod.review_code(claims, evidence, plan, run_nollm) == []
+
+
+# -- verify_claims: blocking findings override the numeric verdict -----------
+
+
+def _full_scale_match_claim(cid: str = "c1") -> tuple[Claim, Plan]:
+    claim = Claim(
+        id=cid,
+        text="Method X reaches 91.2% accuracy.",
+        source_ref="t1",
+        metric="accuracy",
+        reported_value=0.912,
+        tolerance=0.01,
+    )
+    plan = Plan(
+        items=[PlanItem(claim_id=cid, steps=["Train and evaluate"], scale_factor=1.0, config={})]
+    )
+    return claim, plan
+
+
+def test_blocking_finding_overrides_a_numeric_match(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+    from claimlens.verify import verify_claims as verify_mod
+
+    run = make_run_context("verify-blocked", runs_root=tmp_path / "runs")
+    _write_claim_code(Path(run.run_dir), "c1", BENIGN_TRAIN + "\naccuracy = 0.912\n")
+    claim, plan = _full_scale_match_claim()
+    verdicts = verify_mod([claim], plan, [_coded("c1", 0.912)], run)
+    assert len(verdicts) == 1
+    verdict = verdicts[0]
+    assert verdict.status == "untestable"
+    assert verdict.status != "replicated"
+    assert verdict.reason and "hardcoded-result" in verdict.reason
+    assert verdict.evidence_ids == ["e_c1"]
+    assert any(
+        item.rule == "hardcoded-result" and item.severity == "blocking"
+        for item in verdict.code_findings
+    )
+
+
+def test_warnings_do_not_change_the_status(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+    from claimlens.verify import verify_claims as verify_mod
+
+    run = make_run_context("verify-warned", runs_root=tmp_path / "runs")
+    _write_claim_code(
+        Path(run.run_dir),
+        "c1",
+        "import numpy as np\n"
+        "from sklearn.metrics import accuracy_score\n"
+        "np.random.shuffle([1, 2, 3])\n"
+        "acc = accuracy_score(y_test, model.predict(X_test))\n"
+        "print(acc)\n",
+    )
+    claim, plan = _full_scale_match_claim()
+    verdicts = verify_mod([claim], plan, [_coded("c1", 0.912)], run)
+    assert verdicts[0].status == "replicated"
+    assert verdicts[0].code_findings
+    assert all(item.severity != "blocking" for item in verdicts[0].code_findings)
+
+
+def test_blocked_claim_skips_sensitivity_reruns(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+    from claimlens.verify import verify_claims as verify_mod
+
+    run = make_run_context("verify-blocked-sens", runs_root=tmp_path / "runs")
+    _write_claim_code(Path(run.run_dir), "c1", BENIGN_TRAIN + "\naccuracy = 0.912\n")
+    claim, plan = _full_scale_match_claim()
+    calls: list = []
+
+    def runner(plan: Plan, run) -> list[Evidence]:  # type: ignore[no-untyped-def]
+        calls.append(plan)
+        return []
+
+    verdicts = verify_mod([claim], plan, [_coded("c1", 0.5)], run, runner)
+    assert verdicts[0].status == "untestable"
+    assert verdicts[0].assumption_effects == []
+    assert calls == []
+
+
+def test_apply_blocking_override_unit() -> None:
+    from claimlens.claims.schema import CodeFinding
+    from claimlens.verify import apply_blocking_override
+    from claimlens.verify.compare import Comparison
+
+    comparison = Comparison(status="replicated", rationale="close", scaled=False)
+    assert apply_blocking_override(comparison, []) == ("replicated", None)
+    advisory = [
+        CodeFinding(
+            rule="review-x",
+            severity="blocking",
+            file="code/c1/iter_1/a.py",
+            message="m",
+            advisory=True,
+        )
+    ]
+    assert apply_blocking_override(comparison, advisory) == ("replicated", None)
+    blocking = [
+        CodeFinding(
+            rule="hardcoded-result",
+            severity="blocking",
+            file="code/c1/iter_1/a.py",
+            line=3,
+            message="literal 0.912",
+            advisory=False,
+        )
+    ]
+    status, reason = apply_blocking_override(comparison, blocking)
+    assert status == "untestable"
+    assert reason and "hardcoded-result" in reason
