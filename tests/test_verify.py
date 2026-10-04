@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from claimlens.claims.schema import Assumption, Claim, Evidence, Plan, PlanItem
+from claimlens.verify import code_audit as code_audit_mod
 from claimlens.verify import compare as compare_mod
 from claimlens.verify import sensitivity as sensitivity_mod
 from claimlens.verify import verify_claims
@@ -339,3 +340,260 @@ def test_verify_claims_resolves_every_claim_without_evidence(tmp_path: Path) -> 
     run = make_run_context("verify-empty", runs_root=tmp_path / "runs")
     verdicts = verify_claims([_claim(), _claim(id="c2")], Plan(), [], run)
     assert [verdict.status for verdict in verdicts] == ["untestable", "untestable"]
+
+
+# -- code audit: deterministic checks over generated code -----------------------
+
+BENIGN_TRAIN = """import numpy as np
+from sklearn.metrics import accuracy_score
+
+np.random.seed(0)
+EPOCHS = 10
+
+
+def train(rows):
+    weights = [0.0] * 4
+    for _ in range(EPOCHS):
+        for row in rows:
+            features = [float(value) for value in row[:-1]]
+            label = int(row[-1])
+            score = sum(w * f for w, f in zip(weights, features))
+            for i in range(len(weights)):
+                weights[i] += 0.01 * (label - (1 if score > 0 else 0)) * features[i]
+    return weights
+
+
+model.fit(X_train, y_train)
+acc = accuracy_score(y_test, model.predict(X_test))
+print(f"MEASURED {acc}")
+"""
+
+
+def _run_claim_audit(  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    snippets: dict[str, str],
+    claim_kwargs: dict | None = None,
+    config: dict | None = None,
+    cid: str = "c1",
+):
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context(f"audit-{cid}", runs_root=tmp_path / "runs")
+    run_dir = Path(run.run_dir)
+    for name, content in snippets.items():
+        dest = run_dir / "code" / cid / "iter_1" / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content, encoding="utf-8")
+    base_claim = {
+        "id": cid,
+        "text": "Method X reaches 91.2% accuracy.",
+        "source_ref": "t1",
+        "metric": "accuracy",
+        "dataset": "D",
+        "reported_value": 0.912,
+        "tolerance": 0.01,
+    }
+    base_claim.update(claim_kwargs or {})
+    claim = Claim(**base_claim)  # type: ignore[arg-type]
+    plan = Plan(
+        items=[
+            PlanItem(
+                claim_id=cid,
+                steps=["Train and evaluate"],
+                scale_factor=1.0,
+                config=config or {"epochs": 10},
+            )
+        ]
+    )
+    evidence = [
+        Evidence(id=f"e_{cid}", claim_id=cid, method="docker", code_dir=f"code/{cid}", iterations=1)
+    ]
+    return code_audit_mod.audit_code([claim], evidence, plan, run), run
+
+
+def _rules(findings) -> set:  # type: ignore[no-untyped-def]
+    return {(item.rule, item.severity) for item in findings}
+
+
+def test_benign_code_has_no_blocking_findings(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(tmp_path, {"train.py": BENIGN_TRAIN})
+    assert not [item for item in findings if item.severity == "blocking"]
+    assert all(item.advisory is False for item in findings)
+
+
+def test_hardcoded_numeric_literal_is_blocking(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(tmp_path, {"train.py": BENIGN_TRAIN + "\naccuracy = 0.912\n"})
+    blocking = [item for item in findings if item.rule == "hardcoded-result"]
+    assert len(blocking) == 1 and blocking[0].severity == "blocking"
+    assert blocking[0].file == "code/c1/iter_1/train.py"
+    assert blocking[0].line == BENIGN_TRAIN.count("\n") + 2
+
+
+def test_hardcoded_percent_forms_are_blocking(tmp_path: Path) -> None:
+    for snippet in ('print("accuracy 91.2%")\n', "TARGET = 91.20\n"):
+        findings, _ = _run_claim_audit(tmp_path, {"train.py": BENIGN_TRAIN + snippet})
+        assert ("hardcoded-result", "blocking") in _rules(findings), snippet
+
+
+def test_hardcoded_value_in_output_file_is_blocking(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(
+        tmp_path, {"train.py": BENIGN_TRAIN, "metrics.txt": "accuracy: 91.2\n"}
+    )
+    assert ("hardcoded-result", "blocking") in _rules(findings)
+
+
+def test_comment_and_trivial_values_do_not_trigger(tmp_path: Path) -> None:
+    snippets = {
+        "train.py": (
+            "# The paper reports 0.912 accuracy; we must reproduce it.\n" + BENIGN_TRAIN + "x = 1\n"
+        )
+    }
+    findings, _ = _run_claim_audit(tmp_path, snippets)
+    assert ("hardcoded-result", "blocking") not in _rules(findings)
+
+
+def test_trivial_reported_value_needs_metric_context(tmp_path: Path) -> None:
+    plain, _ = _run_claim_audit(
+        tmp_path,
+        {"train.py": "folds = 2\n"},
+        claim_kwargs={"metric": "speedup", "reported_value": 2.0},
+    )
+    assert ("hardcoded-result", "blocking") not in _rules(plain)
+    exact, _ = _run_claim_audit(
+        tmp_path,
+        {"train.py": "speedup = 2.0\n"},
+        claim_kwargs={"metric": "speedup", "reported_value": 2.0},
+    )
+    assert ("hardcoded-result", "blocking") in _rules(exact)
+
+
+def test_fit_on_test_split_is_blocking(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(
+        tmp_path, {"train.py": BENIGN_TRAIN + "\nmodel.fit(X_test, y_test)\n"}
+    )
+    assert ("train-test-overlap", "blocking") in _rules(findings)
+
+
+def test_same_object_for_fit_and_score_is_blocking(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(
+        tmp_path, {"train.py": "model.fit(X, y)\nprint(model.score(X, y))\n"}
+    )
+    assert ("train-test-overlap", "blocking") in _rules(findings)
+
+
+def test_same_file_for_train_and_eval_is_blocking(tmp_path: Path) -> None:
+    snippet = (
+        "train = load_csv('data.csv')\n"
+        "model.fit(train)\n"
+        "test = load_csv('data.csv')\n"
+        "print(model.score(test))\n"
+    )
+    findings, _ = _run_claim_audit(tmp_path, {"train.py": snippet})
+    assert ("train-test-overlap", "blocking") in _rules(findings)
+    clean = snippet.replace("load_csv('data.csv')\nprint", "load_csv('test.csv')\nprint")
+    clean = clean.replace("train = load_csv('data.csv')", "train = load_csv('train.csv')")
+    findings, _ = _run_claim_audit(tmp_path, {"train.py": clean})
+    assert ("train-test-overlap", "blocking") not in _rules(findings)
+
+
+def test_results_read_from_unwritten_file_warns(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(
+        tmp_path, {"train.py": BENIGN_TRAIN + '\nresults = pd.read_csv("results.csv")\n'}
+    )
+    assert ("results-from-file", "warning") in _rules(findings)
+    findings, _ = _run_claim_audit(
+        tmp_path, {"train.py": BENIGN_TRAIN + '\nframe = pd.read_csv("train.csv")\n'}
+    )
+    assert ("results-from-file", "warning") not in _rules(findings)
+
+
+def test_missing_seed_warns_only_when_randomness_is_used(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(
+        tmp_path, {"train.py": "import numpy as np\nnp.random.shuffle(rows)\n"}
+    )
+    assert ("seed-not-set", "warning") in _rules(findings)
+    assert ("seed-not-set", "warning") not in _rules(
+        _run_claim_audit(tmp_path, {"train.py": BENIGN_TRAIN})[0]
+    )
+    assert ("seed-not-set", "warning") not in _rules(
+        _run_claim_audit(tmp_path, {"train.py": "print('deterministic')\n"})[0]
+    )
+
+
+def test_missing_hyperparameters_warn(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(
+        tmp_path, {"train.py": "EPOCHS = 10\n"}, config={"epochs": 10, "learning_rate": 0.01}
+    )
+    missing = [item for item in findings if item.rule == "missing-hyperparameter"]
+    assert len(missing) == 1 and "learning_rate" in missing[0].message
+    findings, _ = _run_claim_audit(
+        tmp_path,
+        {"train.py": "EPOCHS = 10\nLR = 0.01\n"},
+        config={"epochs": 10, "learning_rate": 0.01},
+    )
+    assert ("missing-hyperparameter", "warning") not in _rules(findings)
+
+
+def test_dataset_mismatch_warns(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(tmp_path, {"train.py": 'DATASET = "E"\n'})
+    assert ("dataset-mismatch", "warning") in _rules(findings)
+    findings, _ = _run_claim_audit(tmp_path, {"train.py": 'DATASET = "D"\n'})
+    assert ("dataset-mismatch", "warning") not in _rules(findings)
+
+
+def test_metric_mismatch_warns(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(tmp_path, {"train.py": "print('done')\n"})
+    assert ("metric-mismatch", "warning") in _rules(findings)
+    assert ("metric-mismatch", "warning") not in _rules(
+        _run_claim_audit(tmp_path, {"train.py": BENIGN_TRAIN})[0]
+    )
+
+
+def test_unpinned_dependencies_are_info(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(
+        tmp_path, {"train.py": BENIGN_TRAIN, "requirements.txt": "numpy\nscikit-learn==1.3.0\n"}
+    )
+    info = [item for item in findings if item.rule == "unpinned-dependency"]
+    assert len(info) == 1 and info[0].severity == "info" and "numpy" in info[0].message
+
+
+def test_small_sample_size_is_info(tmp_path: Path) -> None:
+    findings, _ = _run_claim_audit(tmp_path, {"train.py": "subset = rows[:20]\n"})
+    assert ("small-sample", "info") in _rules(findings)
+    findings, _ = _run_claim_audit(tmp_path, {"train.py": "subset = rows[:200]\n"})
+    assert ("small-sample", "info") not in _rules(findings)
+
+
+def test_missing_code_is_a_blocking_finding(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("audit-nocode", runs_root=tmp_path / "runs")
+    claim = Claim(id="c4", text="Generalizes.", source_ref="s3", reported_value=None)
+    plan = Plan()
+    findings = code_audit_mod.audit_code([claim], [], plan, run)
+    assert len(findings) == 1
+    assert findings[0].rule == "code-present"
+    assert findings[0].severity == "blocking" and findings[0].advisory is False
+
+
+def test_audit_emits_code_audit_events_per_claim(tmp_path: Path) -> None:
+    import json
+
+    _, run = _run_claim_audit(tmp_path, {"train.py": BENIGN_TRAIN})
+    events = [
+        json.loads(line)
+        for line in (Path(run.run_dir) / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    audit_events = [event for event in events if event["stage"] == "code_audit"]
+    assert audit_events[0]["status"] == "started"
+    assert audit_events[-1]["status"] == "done"
+    assert {
+        event["data"]["claim_id"] for event in audit_events if event["status"] == "progress"
+    } == {"c1"}
+
+
+def test_audit_module_makes_no_model_calls() -> None:
+    source = Path(code_audit_mod.__file__).read_text(encoding="utf-8").lower()
+    assert "llmgateway" not in source
+    assert "complete(" not in source
+    assert "gemini" not in source and "openrouter" not in source
