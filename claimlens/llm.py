@@ -33,6 +33,11 @@ def _approx_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def approx_tokens(text: str) -> int:
+    """Public rough token estimate (characters / 4) for chunking decisions."""
+    return _approx_tokens(text)
+
+
 def _messages_text(messages: list[dict[str, Any]]) -> str:
     return "\n".join(str(m.get("content", "")) for m in messages)
 

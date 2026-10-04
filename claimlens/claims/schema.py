@@ -13,13 +13,23 @@ from pydantic import BaseModel, Field
 
 
 class Claim(BaseModel):
-    """A single testable claim extracted from a paper."""
+    """A single testable claim extracted from a paper.
+
+    ``reported_value`` is normalized to unit-free numbers: percentages
+    and percentage points become fractions (91.2% -> 0.912).
+    ``tolerance`` uses the same units. ``source_ref`` is a section or
+    table id from the parsed paper.
+    """
 
     id: str
     text: str
     source_ref: str
     metric: str | None = None
+    dataset: str | None = None
+    baseline: str | None = None
     reported_value: float | None = None
+    tolerance: float | None = None
+    testable: bool = True
     page: int | None = None
 
 
