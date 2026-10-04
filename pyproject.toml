@@ -15,6 +15,9 @@ dependencies = [
     "docker",
     "typer",
     "pyyaml",
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
 ]
 
 [project.optional-dependencies]

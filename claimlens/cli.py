@@ -58,6 +58,44 @@ def report(
     typer.echo(str(path))
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind."),
+    port: int = typer.Option(8000, "--port", help="Port to bind."),
+    prod: bool = typer.Option(
+        False, "--prod", help="Production mode: serve web/dist if it exists."
+    ),
+) -> None:
+    """Serve the ClaimLens web API with uvicorn."""
+    import os
+
+    import uvicorn
+
+    from claimlens.api.app import create_app
+
+    if prod:
+        os.environ["CLAIMLENS_PROD"] = "1"
+    uvicorn.run(create_app(), host=host, port=port)
+
+
+@app.command(name="export-openapi")
+def export_openapi(
+    out: Path = typer.Option(
+        Path("docs/openapi.json"), "--out", help="Where to write the schema."
+    ),
+) -> None:
+    """Write the API schema to docs/openapi.json for the frontend."""
+    import json
+
+    from claimlens.api.app import create_app
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8") as f:
+        json.dump(create_app().openapi(), f, indent=2)
+        f.write("\n")
+    typer.echo(str(out))
+
+
 def main() -> None:
     """Console-script entry point."""
     app()
