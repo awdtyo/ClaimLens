@@ -8,6 +8,7 @@ import pytest
 
 from claimlens.claims.schema import Assumption, Claim, Evidence, Plan, PlanItem
 from claimlens.verify import code_audit as code_audit_mod
+from claimlens.verify import code_review as code_review_mod
 from claimlens.verify import compare as compare_mod
 from claimlens.verify import sensitivity as sensitivity_mod
 from claimlens.verify import verify_claims
@@ -597,3 +598,114 @@ def test_audit_module_makes_no_model_calls() -> None:
     assert "llmgateway" not in source
     assert "complete(" not in source
     assert "gemini" not in source and "openrouter" not in source
+
+
+# -- code review: advisory LLM findings ------------------------------------------
+
+
+def _review_setup(tmp_path: Path, cid: str = "c1"):  # type: ignore[no-untyped-def]
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context(f"review-{cid}", runs_root=tmp_path / "runs")
+    dest = Path(run.run_dir) / "code" / cid / "iter_1" / "train.py"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(BENIGN_TRAIN, encoding="utf-8")
+    claim = Claim(
+        id=cid,
+        text="Method X reaches 91.2% accuracy.",
+        source_ref="t1",
+        metric="accuracy",
+        reported_value=0.912,
+        tolerance=0.01,
+    )
+    plan = Plan(
+        items=[PlanItem(claim_id=cid, steps=["Train and evaluate"], scale_factor=1.0, config={})]
+    )
+    evidence = [
+        Evidence(id=f"e_{cid}", claim_id=cid, method="docker", code_dir=f"code/{cid}", iterations=1)
+    ]
+    return run, [claim], evidence, plan
+
+
+def test_review_with_fake_provider_returns_advisory_findings(tmp_path: Path) -> None:
+    run, claims, evidence, plan = _review_setup(tmp_path)
+    findings = code_review_mod.review_code(claims, evidence, plan, run)
+    assert len(findings) == 1
+    assert findings[0].advisory is True
+    assert findings[0].severity == "warning"
+    assert findings[0].rule == "review-seed-review"
+    assert findings[0].file == "code/c1/iter_1/train.py"
+
+
+def test_review_handles_invalid_model_output_without_crashing(tmp_path: Path) -> None:
+    from claimlens.config import RunContext
+
+    run, claims, evidence, plan = _review_setup(tmp_path)
+
+    class StubLLM:
+        def __init__(self, replies: list) -> None:  # type: ignore[no-untyped-def]
+            self.replies = list(replies)
+
+        def complete(self, task: str, messages, schema=None, tools=None, role: str = "agent"):  # type: ignore[no-untyped-def]
+            assert task == "code_review"
+            reply = self.replies.pop(0)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+    bad_replies: list = [
+        {"text": "looks fine to me"},
+        {"findings": "oops"},
+        None,
+        {"findings": [{"rule": "", "message": ""}]},
+        {"findings": [{"rule": "x", "message": "y", "file": "elsewhere.py"}]},
+        RuntimeError("model blew up"),
+    ]
+    run_stub = RunContext(
+        run_id=run.run_id, run_dir=run.run_dir, config=run.config, llm=StubLLM(bad_replies)
+    )
+    # One reply per call: garbage yields nothing, the unknown file falls
+    # back to the first known file, the exception yields nothing.
+    for want in ([], [], [], [], "fallback", []):
+        got = code_review_mod.review_code(claims, evidence, plan, run_stub)
+        if want == "fallback":
+            assert len(got) == 1 and got[0].advisory is True
+        else:
+            assert got == []
+    assert code_review_mod.review_code(claims, [], plan, run_stub) == []
+
+
+def test_review_coerces_severity_and_unknown_files(tmp_path: Path) -> None:
+    from claimlens.config import RunContext
+
+    run, claims, evidence, plan = _review_setup(tmp_path)
+
+    class StubLLM:
+        def complete(self, task: str, messages, schema=None, tools=None, role: str = "agent"):  # type: ignore[no-untyped-def]
+            return {
+                "findings": [
+                    {
+                        "rule": "hard",
+                        "severity": "blocking",
+                        "file": "invented.py",
+                        "line": -3,
+                        "message": "bad",
+                    }
+                ]
+            }
+
+    run_stub = RunContext(run_id=run.run_id, run_dir=run.run_dir, config=run.config, llm=StubLLM())
+    findings = code_review_mod.review_code(claims, evidence, plan, run_stub)
+    assert len(findings) == 1
+    assert findings[0].advisory is True
+    assert findings[0].severity == "warning"
+    assert findings[0].file == "code/c1/iter_1/train.py"
+    assert findings[0].line is None
+
+
+def test_review_without_gateway_returns_no_findings(tmp_path: Path) -> None:
+    from claimlens.config import RunContext
+
+    run, claims, evidence, plan = _review_setup(tmp_path)
+    run_nollm = RunContext(run_id=run.run_id, run_dir=run.run_dir, config=run.config, llm=None)
+    assert code_review_mod.review_code(claims, evidence, plan, run_nollm) == []
