@@ -14,3 +14,5 @@ runs/
 .cache/
 node_modules/
 web/dist/
+examples/*/paper.pdf
+examples/*/fake_override.json

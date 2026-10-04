@@ -1,0 +1,58 @@
+title: Method U Reaches 94.1% on Dataset S
+notes: >-
+  Documented replication problem: the prose claims 94.1% but Table 1
+  reports 93.0 for the same method. The text layer and the vision read
+  agree with each other, so no table mismatch is expected; the conflict
+  is between the prose and the table, which ClaimLens records in the
+  claim text but does not score without the verify stage.
+sections:
+  - {id: s1, title: Introduction, page: 1}
+  - {id: s2, title: Method, page: 1}
+  - {id: s3, title: Results, page: 1}
+tables:
+  - id: t1
+    source: text
+    page: 1
+    caption: Test accuracy on dataset S.
+    rows:
+      - [Method, Accuracy (%)]
+      - [U, "93.0"]
+claims_raw:
+  - text: Method U reaches 93.0% accuracy on dataset S.
+    metric: accuracy
+    dataset: S
+    baseline: null
+    reported_value: 93.0
+    reported_unit: percent
+    tolerance: 0.01
+    source_ref: t1
+    testable: true
+claims_expected:
+  - id: c1
+    text: Method U reaches 93.0% accuracy on dataset S.
+    source_ref: t1
+    metric: accuracy
+    dataset: S
+    baseline: null
+    reported_value: 0.93
+    tolerance: 0.01
+    testable: true
+    page: 1
+plan_raw:
+  assumptions:
+    - detail: Random seed for training
+      value_chosen: "3"
+      reason: The paper states a fixed seed of 3 in Section 2, so the reproduction uses it.
+      confidence: high
+    - detail: Training data subsample for the scaled run
+      value_chosen: first 10% of training examples
+      reason: The paper does not define a scaled-down split, so the first 10% of training examples is used and logged.
+      confidence: medium
+  items:
+    - claim_id: c1
+      steps: [Train method U on a 10% subsample of dataset S, Evaluate on the test split]
+      scale_factor: 0.1
+      scale_reason: Full 6-epoch runs are costly, so a 10% subsample is used.
+      config: {epochs: 6, seed: 3}
+expected_verdicts:
+  - {claim_id: c1, status: not replicated}

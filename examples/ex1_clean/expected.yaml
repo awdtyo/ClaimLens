@@ -1,0 +1,104 @@
+title: Method Z Reaches 85.0% Accuracy on Dataset Q
+notes: Clean small paper. All numbers agree between prose and Table 1.
+sections:
+  - {id: s1, title: Introduction, page: 1}
+  - {id: s2, title: Method, page: 1}
+  - {id: s3, title: Results, page: 1}
+tables:
+  - id: t1
+    source: text
+    page: 1
+    caption: Test accuracy on dataset Q.
+    rows:
+      - [Method, Accuracy (%)]
+      - [Z, "85.0"]
+      - [W (baseline), "81.5"]
+claims_raw:
+  - text: Method Z reaches 85.0% accuracy on dataset Q, versus 81.5% for baseline W.
+    metric: accuracy
+    dataset: Q
+    baseline: W
+    reported_value: 85.0
+    reported_unit: percent
+    tolerance: 0.01
+    source_ref: t1
+    testable: true
+  - text: Baseline W reaches 81.5% accuracy on dataset Q.
+    metric: accuracy
+    dataset: Q
+    baseline: null
+    reported_value: 81.5
+    reported_unit: percent
+    tolerance: 0.01
+    source_ref: t1
+    testable: true
+  - text: Method Z outperforms baseline W by 3.5 percentage points on dataset Q.
+    metric: accuracy_gain_pp
+    dataset: Q
+    baseline: W
+    reported_value: 3.5
+    reported_unit: percentage_points
+    tolerance: 0.01
+    source_ref: s3
+    testable: true
+claims_expected:
+  - id: c1
+    text: Method Z reaches 85.0% accuracy on dataset Q, versus 81.5% for baseline W.
+    source_ref: t1
+    metric: accuracy
+    dataset: Q
+    baseline: W
+    reported_value: 0.85
+    tolerance: 0.01
+    testable: true
+    page: 1
+  - id: c2
+    text: Baseline W reaches 81.5% accuracy on dataset Q.
+    source_ref: t1
+    metric: accuracy
+    dataset: Q
+    baseline: null
+    reported_value: 0.815
+    tolerance: 0.01
+    testable: true
+    page: 1
+  - id: c3
+    text: Method Z outperforms baseline W by 3.5 percentage points on dataset Q.
+    source_ref: s3
+    metric: accuracy_gain_pp
+    dataset: Q
+    baseline: W
+    reported_value: 0.035
+    tolerance: 0.01
+    testable: true
+    page: 1
+plan_raw:
+  assumptions:
+    - detail: Random seed for training
+      value_chosen: "1"
+      reason: The paper states a fixed seed of 1 in Section 2, so the reproduction uses it.
+      confidence: high
+    - detail: Training data subsample for the scaled run
+      value_chosen: first 10% of training examples
+      reason: The paper does not define a scaled-down split, so the first 10% of training examples is used and logged.
+      confidence: medium
+  items:
+    - claim_id: c1
+      steps: [Train method Z on a 10% subsample of dataset Q, Evaluate on the test split]
+      scale_factor: 0.1
+      scale_reason: Full 5-epoch runs are costly, so a 10% subsample is used.
+      config: {batch_size: 32, epochs: 5, learning_rate: 0.02, seed: 1}
+    - claim_id: c2
+      steps: [Train baseline W on a 10% subsample of dataset Q, Evaluate on the test split]
+      scale_factor: 0.1
+      scale_reason: The baseline is reproduced at the same 10% scale so the comparison stays fair.
+      config: {batch_size: 32, epochs: 5, learning_rate: 0.02, seed: 1}
+    - claim_id: c3
+      steps: [Compare measured accuracies of Z and W]
+      scale_factor: 0.1
+      scale_reason: The gap is derived from the two scaled runs above.
+      config: {batch_size: 32, epochs: 5, seed: 1}
+expected_verdicts:
+  - {claim_id: c1, status: partially replicated}
+  - {claim_id: c2, status: partially replicated}
+  - {claim_id: c3, status: untestable at this scale}

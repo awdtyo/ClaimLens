@@ -1,0 +1,78 @@
+title: Method T May Generalize to Dataset E
+notes: c2 has no measurable number and no available dataset, so it is untestable.
+sections:
+  - {id: s1, title: Introduction, page: 1}
+  - {id: s2, title: Method, page: 1}
+  - {id: s3, title: Results, page: 1}
+tables:
+  - id: t1
+    source: text
+    page: 1
+    caption: Accuracy on dataset F.
+    rows:
+      - [Method, Accuracy (%)]
+      - [T, "87.0"]
+claims_raw:
+  - text: Method T reaches 87.0% accuracy on dataset F.
+    metric: accuracy
+    dataset: F
+    baseline: null
+    reported_value: 87.0
+    reported_unit: percent
+    tolerance: 0.01
+    source_ref: t1
+    testable: true
+  - text: Method T generalizes to dataset E.
+    metric: null
+    dataset: E
+    baseline: null
+    reported_value: null
+    reported_unit: null
+    tolerance: null
+    source_ref: s1
+    testable: false
+claims_expected:
+  - id: c1
+    text: Method T reaches 87.0% accuracy on dataset F.
+    source_ref: t1
+    metric: accuracy
+    dataset: F
+    baseline: null
+    reported_value: 0.87
+    tolerance: 0.01
+    testable: true
+    page: 1
+  - id: c2
+    text: Method T generalizes to dataset E.
+    source_ref: s1
+    metric: null
+    dataset: E
+    baseline: null
+    reported_value: null
+    tolerance: 0.01
+    testable: false
+    page: 1
+plan_raw:
+  assumptions:
+    - detail: Random seed for training
+      value_chosen: "4"
+      reason: The paper states a fixed seed of 4 in Section 2, so the reproduction uses it.
+      confidence: high
+    - detail: Training data subsample for the scaled run
+      value_chosen: first 10% of training examples
+      reason: The paper does not define a scaled-down split, so the first 10% of training examples is used and logged.
+      confidence: medium
+  items:
+    - claim_id: c1
+      steps: [Train method T on a 10% subsample of dataset F, Evaluate on the test split]
+      scale_factor: 0.1
+      scale_reason: Full 3-epoch runs are costly, so a 10% subsample is used.
+      config: {epochs: 3, seed: 4}
+    - claim_id: c2
+      steps: [Locate dataset E, Evaluate method T on dataset E]
+      scale_factor: 1.0
+      scale_reason: No reduced scale applies; the dataset is unavailable.
+      config: {}
+expected_verdicts:
+  - {claim_id: c1, status: partially replicated}
+  - {claim_id: c2, status: untestable}

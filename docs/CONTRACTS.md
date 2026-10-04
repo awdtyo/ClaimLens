@@ -19,8 +19,12 @@ reaches 91.2% accuracy on dataset D versus 88.0% for baseline Y.
 
 ## Schema notes
 
-- `Claim`: `id`, `text`, `source_ref` (required, real reference), optional
-  `metric`, `reported_value` and `page` (PDF page for UI navigation).
+- `Claim`: `id`, `text`, `source_ref` (a section or table id from the
+  parsed paper, e.g. `t1`; anything else is rejected), `metric`,
+  `dataset`, `baseline`, `reported_value` (normalized: percentages and
+  percentage points become fractions, so 91.2% is stored as 0.912),
+  `tolerance` (same units, default 0.01), `testable` (default true) and
+  `page` (PDF page for UI navigation).
 - `Assumption`: `id`, `detail`, `value_chosen`, `reason` (never empty),
   `confidence` (`low` | `medium` | `high`).
 - `AssumptionEffect`: `assumption_id`, `claim_id`, `alt_value`,
@@ -37,11 +41,42 @@ reaches 91.2% accuracy on dataset D versus 88.0% for baseline Y.
   `table_mismatches` (`TableMismatch`: `table_id`, `row`, `col`,
   `text_value`, `vision_value`).
 - `Plan`: `items` (`PlanItem`: `claim_id`, `steps`, `scale_factor`,
-  `config`), `assumptions`.
+  `scale_reason` (why this scale; never empty), `config`), `assumptions`.
 - `RunContext.emit(stage, status, message=None, data=None)` appends
   `{"ts", "run_id", "stage", "status", "message", "data"}` to
   `runs/<run_id>/events.jsonl` and notifies live SSE subscribers.
   `status` is one of `started` | `progress` | `done` | `failed`.
+
+## Value normalization
+
+`Claim.reported_value` is stored unit-free: percentages and percentage
+points are divided by 100 (91.2% -> 0.912); ratios and counts pass
+through. `tolerance` uses the same units. The verify stage must
+normalize measured values the same way before comparing.
+
+## Source references
+
+`Claim.source_ref` is always a section or table id (`s1`, `t1`); the
+page shown in the UI comes from that section or table. Claims pointing
+elsewhere are rejected at extraction.
+
+## Report outputs
+
+`render_report` writes `report.md` (summary table plus per-claim
+verdict, numbers, key assumptions, scale limits and log links) and
+`report.json` (the verdict list unchanged, each entry validating as a
+`Verdict`). The pipeline records the Markdown path in `06_report.json`.
+
+## Examples and evaluation
+
+`examples/<name>/` holds `paper.md` plus `expected.yaml` (expected
+sections, tables, normalized claims, plan content and predicted
+verdicts). `python -m scripts.evaluate` builds each PDF, runs the
+ingest/claims/plan stages with per-example canned model outputs, and
+writes agreement results to `docs/eval.md`. Verdict comparison stays
+blocked until the sandbox and verify stages land. `python -m
+scripts.seed_example_demos` materializes `demo=true` runs from the
+examples with the stages implemented so far.
 
 ## Pipeline and CLI
 

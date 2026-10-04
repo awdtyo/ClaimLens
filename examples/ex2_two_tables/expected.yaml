@@ -1,0 +1,85 @@
+title: Method V Trains Fast on Dataset R
+notes: Two tables. Claims point at t1 and t2 respectively.
+sections:
+  - {id: s1, title: Introduction, page: 1}
+  - {id: s2, title: Method, page: 1}
+  - {id: s3, title: Results, page: 1}
+tables:
+  - id: t1
+    source: text
+    page: 1
+    caption: Accuracy on dataset R.
+    rows:
+      - [Method, Accuracy (%)]
+      - [V, "90.0"]
+  - id: t2
+    source: text
+    page: 1
+    caption: Training time.
+    rows:
+      - [Method, Minutes]
+      - [V, "12"]
+claims_raw:
+  - text: Method V reaches 90.0% accuracy on dataset R.
+    metric: accuracy
+    dataset: R
+    baseline: null
+    reported_value: 90.0
+    reported_unit: percent
+    tolerance: 0.01
+    source_ref: t1
+    testable: true
+  - text: Method V trains in 12 minutes on one GPU.
+    metric: minutes
+    dataset: R
+    baseline: null
+    reported_value: 12
+    reported_unit: count
+    tolerance: 1.0
+    source_ref: t2
+    testable: true
+claims_expected:
+  - id: c1
+    text: Method V reaches 90.0% accuracy on dataset R.
+    source_ref: t1
+    metric: accuracy
+    dataset: R
+    baseline: null
+    reported_value: 0.9
+    tolerance: 0.01
+    testable: true
+    page: 1
+  - id: c2
+    text: Method V trains in 12 minutes on one GPU.
+    source_ref: t2
+    metric: minutes
+    dataset: R
+    baseline: null
+    reported_value: 12.0
+    tolerance: 1.0
+    testable: true
+    page: 1
+plan_raw:
+  assumptions:
+    - detail: Random seed for training
+      value_chosen: "2"
+      reason: The paper states a fixed seed of 2 in Section 2, so the reproduction uses it.
+      confidence: high
+    - detail: Training data subsample for the scaled run
+      value_chosen: first 10% of training examples
+      reason: The paper does not define a scaled-down split, so the first 10% of training examples is used and logged.
+      confidence: medium
+  items:
+    - claim_id: c1
+      steps: [Train method V on a 10% subsample of dataset R, Evaluate on the test split]
+      scale_factor: 0.1
+      scale_reason: Full 4-epoch runs are costly, so a 10% subsample is used.
+      config: {batch_size: 16, epochs: 4, learning_rate: 0.05, seed: 2}
+    - claim_id: c2
+      steps: [Train method V on a 10% subsample and record wall-clock minutes]
+      scale_factor: 0.1
+      scale_reason: Timing is compared relatively at the same reduced scale.
+      config: {batch_size: 16, epochs: 4, seed: 2}
+expected_verdicts:
+  - {claim_id: c1, status: partially replicated}
+  - {claim_id: c2, status: partially replicated}

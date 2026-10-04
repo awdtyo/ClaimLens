@@ -119,6 +119,9 @@ def extract_text_tables(pages: list[PageLines], pdf_path: Path | str | None = No
             block: list[list[str]] = []
             for line in page_lines.lines:
                 if CAPTION_RE.match(line):
+                    if block:
+                        raw.append((page_lines.page, caption, block))
+                        block = []
                     caption = clean_caption(line)
                     continue
                 row = parse_pipe_row(line)

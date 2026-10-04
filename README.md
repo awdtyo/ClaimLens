@@ -70,6 +70,21 @@ claimlens --help
 
 No API key is needed for tests: set `CLAIMLENS_PROVIDER=fake`.
 
+## Evaluation
+
+`examples/<name>/` holds a small paper (`paper.md`) with expected
+claims, plan content and predicted verdicts (`expected.yaml`). Run the
+implemented stages over all examples and record agreement:
+
+```bash
+python -m scripts.evaluate          # writes docs/eval.md
+python -m scripts.seed_example_demos # demo=true runs from the examples
+```
+
+Model outputs are canned per example, so this checks the deterministic
+layers. Verdict comparison stays blocked until the sandbox and verify
+stages land; `docs/eval.md` records that, including failures.
+
 ## Configuration
 
 See `.env.example`. Variables are read in `claimlens/config.py`:

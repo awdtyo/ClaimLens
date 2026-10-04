@@ -150,3 +150,27 @@ def test_vision_result_validation_rejects_garbage(isolated_run) -> None:  # type
 def test_parsed_fixture_validates(fixtures_dir: Path) -> None:
     data = json.loads((fixtures_dir / "sample_parsed.json").read_text(encoding="utf-8"))
     assert ParsedPaper.model_validate(data).title
+
+
+def test_back_to_back_tables_stay_separate(tmp_path: Path) -> None:
+    from scripts.paperlib import render_pdf
+
+    pdf = render_pdf(
+        tmp_path / "two.pdf",
+        [
+            [
+                ("title", "Two tables"),
+                ("heading", "1. Results"),
+                ("caption", "Table 1: First."),
+                ("table", [["A"], ["1"]]),
+                ("caption", "Table 2: Second."),
+                ("table", [["B"], ["2"]]),
+            ]
+        ],
+    )
+    doc = pdf_text.extract_pages(pdf)
+    found = tables.extract_text_tables(doc.pages, pdf_path=pdf)
+    assert [(table.id, table.caption) for table in found] == [
+        ("t1", "First."),
+        ("t2", "Second."),
+    ]
