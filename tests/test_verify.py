@@ -9,6 +9,7 @@ import pytest
 from claimlens.claims.schema import Assumption, Claim, Evidence, Plan, PlanItem
 from claimlens.verify import compare as compare_mod
 from claimlens.verify import sensitivity as sensitivity_mod
+from claimlens.verify import verify_claims
 
 
 def _claim(**overrides) -> Claim:  # type: ignore[no-untyped-def]
@@ -228,3 +229,113 @@ def test_sensitivity_needs_a_baseline_measurement(tmp_path: Path) -> None:
 def test_sensitivity_module_makes_no_model_calls() -> None:
     source = Path(sensitivity_mod.__file__).read_text(encoding="utf-8").lower()
     assert "llm" not in source
+
+
+# -- verify_claims (fake runner, no Docker) --------------------------------------
+
+
+def _toy_inputs(fixtures_dir: Path) -> tuple[list[Claim], Plan, list[Evidence]]:
+    import json
+
+    claims = [
+        Claim.model_validate(item)
+        for item in json.loads((fixtures_dir / "sample_claims.json").read_text(encoding="utf-8"))
+    ]
+    plan = Plan.model_validate(
+        json.loads((fixtures_dir / "sample_plan.json").read_text(encoding="utf-8"))
+    )
+    evidence = [
+        Evidence.model_validate(item)
+        for item in json.loads((fixtures_dir / "sample_evidence.json").read_text(encoding="utf-8"))
+    ]
+    return claims, plan, evidence
+
+
+def test_verify_claims_matches_contract_shape(tmp_path: Path, fixtures_dir: Path) -> None:
+    """Toy paper: c1/c2 partially replicated (scaled), c3 untestable at this scale."""
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("verify-toy", runs_root=tmp_path / "runs")
+    claims, plan, evidence = _toy_inputs(fixtures_dir)
+    verdicts = verify_claims(claims, plan, evidence, run)
+    by_claim = {verdict.claim_id: verdict for verdict in verdicts}
+    assert [verdict.claim_id for verdict in verdicts] == ["c1", "c2", "c3"]
+    assert by_claim["c1"].status == "partially replicated"
+    assert by_claim["c2"].status == "partially replicated"
+    assert by_claim["c3"].status == "untestable at this scale"
+    assert all(verdict.scaled for verdict in verdicts)
+    assert by_claim["c1"].evidence_ids == ["e1"]
+    assert by_claim["c3"].evidence_ids == []
+
+
+def test_verify_claims_triggers_sensitivity_on_full_scale_mismatch(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("verify-sens", runs_root=tmp_path / "runs")
+    verdicts = verify_claims(
+        [_sensitivity_claim()],
+        _sensitivity_plan(),
+        [_evidence(0.821, claim_id="c3", eid="e3")],
+        run,
+        _sensitivity_runner,
+    )
+    assert verdicts[0].status == "not replicated"
+    assert [effect.assumption_id for effect in verdicts[0].assumption_effects] == ["a2", "a1"]
+
+
+def test_verify_claims_without_runner_has_no_effects(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("verify-norunner", runs_root=tmp_path / "runs")
+    verdicts = verify_claims(
+        [_sensitivity_claim()],
+        _sensitivity_plan(),
+        [_evidence(0.821, claim_id="c3", eid="e3")],
+        run,
+    )
+    assert verdicts[0].status == "not replicated"
+    assert verdicts[0].assumption_effects == []
+
+
+def test_verify_claims_scaled_mismatch_skips_sensitivity(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("verify-scaled", runs_root=tmp_path / "runs")
+    plan = _sensitivity_plan().model_copy(update={"items": []})
+    plan.items = [PlanItem(claim_id="c3", steps=["Train under noise"], scale_factor=0.1, config={})]
+    verdicts = verify_claims(
+        [_sensitivity_claim()],
+        plan,
+        [_evidence(0.70, claim_id="c3", eid="e3")],
+        run,
+        _sensitivity_runner,
+    )
+    assert verdicts[0].status == "partially replicated"
+    assert verdicts[0].assumption_effects == []
+
+
+def test_verify_claims_emits_one_event_per_claim(tmp_path: Path, fixtures_dir: Path) -> None:
+    import json
+
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("verify-events", runs_root=tmp_path / "runs")
+    claims, plan, evidence = _toy_inputs(fixtures_dir)
+    verify_claims(claims, plan, evidence, run)
+    events = [
+        json.loads(line)
+        for line in (Path(run.run_dir) / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    verify_events = [event for event in events if event["stage"] == "verify"]
+    assert verify_events[0]["status"] == "started"
+    assert verify_events[-1]["status"] == "done"
+    per_claim = [event for event in verify_events if event["status"] == "progress"]
+    assert {event["data"]["claim_id"] for event in per_claim} == {"c1", "c2", "c3"}
+
+
+def test_verify_claims_resolves_every_claim_without_evidence(tmp_path: Path) -> None:
+    from claimlens.pipeline import make_run_context
+
+    run = make_run_context("verify-empty", runs_root=tmp_path / "runs")
+    verdicts = verify_claims([_claim(), _claim(id="c2")], Plan(), [], run)
+    assert [verdict.status for verdict in verdicts] == ["untestable", "untestable"]
