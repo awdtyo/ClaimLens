@@ -17,7 +17,9 @@ def test_sample_parsed_validates(fixtures_dir: Path) -> None:
     parsed = ParsedPaper.model_validate(_load(fixtures_dir, "sample_parsed.json"))
     assert parsed.title
     assert len(parsed.sections) == 4
-    assert len(parsed.tables) == 1
+    sources = [table.source for table in parsed.tables]
+    assert sources.count("text") == 1
+    assert sources.count("vision") == 1
 
 
 def test_sample_claims_validate(fixtures_dir: Path) -> None:
