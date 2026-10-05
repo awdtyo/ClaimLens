@@ -7,6 +7,13 @@ Providers: ``gemini``, ``openrouter``, ``ollama`` and ``fake``.
 The ``fake`` provider returns canned JSON from
 ``tests/fixtures/fake_llm_responses.json`` keyed by ``task``, so tests
 run without an API key.
+
+Rate-limit failover: when the primary provider keeps returning HTTP
+429, the gateway automatically retries once through
+``CLAIMLENS_FALLBACK_PROVIDER`` (default ``openrouter``, needs
+``OPENROUTER_API_KEY``). Through OpenRouter only the two free Gemma 4
+models are used: planner -> ``google/gemma-4-31b-it:free``,
+agent/fast -> ``google/gemma-4-26b-a4b-it:free``.
 """
 
 from __future__ import annotations
@@ -26,6 +33,25 @@ VALID_ROLES = ("planner", "agent", "fast")
 RETRY_STATUS = {429, 500, 502, 503, 504}
 MAX_RETRIES = 4
 BASE_BACKOFF_S = 1.0
+
+
+class RateLimitError(RuntimeError):
+    """Raised when a provider keeps returning HTTP 429 (quota exhausted)."""
+
+
+def is_rate_limit_error(exc: BaseException) -> bool:
+    """Check whether an exception signals rate limiting / quota exhaustion."""
+    if isinstance(exc, RateLimitError):
+        return True
+    text = str(exc).lower()
+    return (
+        "http 429" in text
+        or "429 " in text
+        or "rate limit" in text
+        or "rate-limit" in text
+        or "quota" in text
+        or "resource_exhausted" in text
+    )
 
 
 def _approx_tokens(text: str) -> int:
@@ -116,34 +142,77 @@ class LLMGateway:
         Returns:
             Parsed JSON (dict/list). Non-JSON text is wrapped as
             ``{"text": ...}``.
+
+        Raises:
+            RateLimitError: If the primary provider is rate-limited and
+                no fallback provider/key is configured.
         """
         if role not in VALID_ROLES:
             raise ValueError(f"Unknown role {role!r}. Choose from {VALID_ROLES}.")
-        model = self.config.model_for_role(role)
+        provider = self.config.provider
+        model = self.config.model_for_role(role, provider)
         schema_dict = self._schema_to_dict(schema)
-        cache_key = self._cache_key(model, messages, schema_dict, tools)
+        cache_key = self._cache_key(provider, model, messages, schema_dict, tools)
         cached = self._cache_read(cache_key)
         if cached is not None:
-            self._log_call(task, role, model, messages, cached, cached_hit=True, raw_text="")
+            self._log_call(
+                task, role, provider, model, messages, cached, cached_hit=True, raw_text=""
+            )
             return cached
 
-        provider = self.config.provider
-        if provider == "fake":
-            result = self._fake_complete(task, schema_dict)
-            raw_text = json.dumps(result)
-        elif provider == "gemini":
-            result, raw_text = self._gemini_complete(model, messages, schema_dict, tools)
-        elif provider == "openrouter":
-            result, raw_text = self._openrouter_complete(model, messages, schema_dict, tools)
-        elif provider == "ollama":
-            result, raw_text = self._ollama_complete(model, messages, schema_dict, tools)
-        else:
-            raise ValueError(
-                f"Unknown provider {provider!r}. Choose gemini, openrouter, ollama, fake."
+        try:
+            result, raw_text = self._call_provider(
+                task, provider, model, messages, schema_dict, tools
             )
+        except Exception as exc:
+            fallback = self.config.fallback_for(provider) if is_rate_limit_error(exc) else None
+            if fallback is None:
+                raise
+            fallback_model = self.config.model_for_role(role, fallback)
+            fallback_key = self._cache_key(fallback, fallback_model, messages, schema_dict, tools)
+            fallback_cached = self._cache_read(fallback_key)
+            if fallback_cached is not None:
+                self._log_call(
+                    task,
+                    role,
+                    fallback,
+                    fallback_model,
+                    messages,
+                    fallback_cached,
+                    cached_hit=True,
+                    raw_text="",
+                )
+                return fallback_cached
+            result, raw_text = self._call_provider(
+                task, fallback, fallback_model, messages, schema_dict, tools
+            )
+            provider, model, cache_key = fallback, fallback_model, fallback_key
         self._cache_write(cache_key, result)
-        self._log_call(task, role, model, messages, result, cached_hit=False, raw_text=raw_text)
+        self._log_call(
+            task, role, provider, model, messages, result, cached_hit=False, raw_text=raw_text
+        )
         return result
+
+    def _call_provider(
+        self,
+        task: str,
+        provider: str,
+        model: str,
+        messages: list[dict[str, Any]],
+        schema: dict[str, Any] | None,
+        tools: list[dict[str, Any]] | None,
+    ) -> tuple[Any, str]:
+        """Dispatch one attempt to the named provider."""
+        if provider == "fake":
+            result = self._fake_complete(task, schema)
+            return result, json.dumps(result)
+        if provider == "gemini":
+            return self._gemini_complete(model, messages, schema, tools)
+        if provider == "openrouter":
+            return self._openrouter_complete(model, messages, schema, tools)
+        if provider == "ollama":
+            return self._ollama_complete(model, messages, schema, tools)
+        raise ValueError(f"Unknown provider {provider!r}. Choose gemini, openrouter, ollama, fake.")
 
     # -- fake provider -------------------------------------------------
 
@@ -270,15 +339,18 @@ class LLMGateway:
 
     def _post_with_retry(self, url: str, headers: dict[str, str], payload: dict[str, Any]) -> Any:
         last_error: Exception | None = None
+        last_status: int | None = None
         with httpx.Client(timeout=120.0) as client:
             for attempt in range(MAX_RETRIES + 1):
                 try:
                     resp = client.post(url, headers=headers, json=payload)
                 except httpx.HTTPError as e:
                     last_error = e
+                    last_status = None
                     self._sleep(attempt)
                     continue
                 if resp.status_code in RETRY_STATUS:
+                    last_status = resp.status_code
                     last_error = RuntimeError(
                         f"HTTP {resp.status_code} from {url}: {resp.text[:500]}"
                     )
@@ -291,6 +363,8 @@ class LLMGateway:
                         f"HTTP {resp.status_code} from {url}: {resp.text[:500]}"
                     ) from e
                 return resp.json()
+        if last_status == 429:
+            raise RateLimitError(f"HTTP 429 from {url}: quota exhausted.") from last_error
         raise RuntimeError(f"Request to {url} failed after retries.") from last_error
 
     def _sleep(self, attempt: int) -> None:
@@ -323,6 +397,7 @@ class LLMGateway:
 
     def _cache_key(
         self,
+        provider: str,
         model: str,
         messages: list[dict[str, Any]],
         schema: dict | None,
@@ -331,7 +406,7 @@ class LLMGateway:
         blob = json.dumps(
             {
                 "model": model,
-                "provider": self.config.provider,
+                "provider": provider,
                 "messages": messages,
                 "schema": schema,
                 "tools": tools,
@@ -363,6 +438,7 @@ class LLMGateway:
         self,
         task: str,
         role: str,
+        provider: str,
         model: str,
         messages: list[dict[str, Any]],
         result: Any,
@@ -381,7 +457,7 @@ class LLMGateway:
                 "task": task,
                 "role": role,
                 "model": model,
-                "provider": self.config.provider,
+                "provider": provider,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "cached": cached_hit,
