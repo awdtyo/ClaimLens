@@ -20,15 +20,24 @@ import ClaimsList from "../components/ClaimsList";
 import ClaimDetail from "../components/ClaimDetail";
 import LogPanel from "../components/LogPanel";
 import PipelineStepper from "../components/PipelineStepper";
+import ProcessingStatus from "../components/ProcessingStatus";
 import ReportView from "../components/ReportView";
 import TablesView from "../components/TablesView";
 import VerdictBadge from "../components/VerdictBadge";
 import VerdictSummary from "../components/VerdictSummary";
-import { cn } from "../lib/utils";
 
 const PaperViewer = lazy(() => import("../components/PaperViewer"));
 
 const TERMINAL = new Set(["done", "failed", "cancelled"]);
+
+function MetricCard({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="cl-surface flex flex-col gap-0.5 px-3 py-2.5">
+      <dt className="cl-meta">{label}</dt>
+      <dd className="text-xl font-semibold tabular-nums">{value}</dd>
+    </div>
+  );
+}
 
 type TabId = "results" | "claims" | "tables" | "report";
 
@@ -154,18 +163,20 @@ export default function RunPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Link to="/" className="text-sm text-blue-700 underline dark:text-blue-300">
+          <Link to="/" className="cl-meta underline underline-offset-4">
             ← All runs
           </Link>
-          <h1 className="mt-1 break-all text-xl font-semibold tracking-tight">
-            {run.filename || runId}
+          <h1 className="cl-h1 mt-1 break-all">
+            {finished ? "Audit Complete" : run.filename || runId}
           </h1>
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            Status: {run.status} · created {formatDateTime(run.created_at)}
+          <p className="cl-meta mt-1">
+            {finished
+              ? `${run.filename || runId} · created ${formatDateTime(run.created_at)}`
+              : `Status: ${run.status} · created ${formatDateTime(run.created_at)}`}
             {run.demo && " · demo"}
           </p>
           {run.error && (
-            <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">
+            <p role="alert" className="mt-1 text-sm text-[var(--bad)]">
               {run.error}
             </p>
           )}
@@ -181,6 +192,8 @@ export default function RunPage() {
         )}
       </div>
 
+      {active && <ProcessingStatus run={run} />}
+
       <Card className="p-4" aria-label="Pipeline progress">
         <PipelineStepper run={run} />
       </Card>
@@ -189,7 +202,7 @@ export default function RunPage() {
         <LogPanel events={events} connected={connected} retries={retries} complete={complete} />
       </div>
 
-      <div role="tablist" aria-label="Run results" className="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-800">
+      <div role="tablist" aria-label="Run results" className="cl-tabs flex flex-wrap gap-1 border-b border-[var(--border)]">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -197,12 +210,7 @@ export default function RunPage() {
             type="button"
             aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
-            className={cn(
-              "rounded-t-md px-4 py-2 text-sm font-medium",
-              tab === t.id
-                ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100"
-                : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800/50",
-            )}
+            className="cl-tab"
           >
             {t.label}
           </button>
@@ -226,7 +234,23 @@ export default function RunPage() {
             ) : (
               <>
                 {finished && verdictsQuery.data && (
-                  <VerdictSummary counts={counts} />
+                  <>
+                    <dl aria-label="Audit metrics" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                      <MetricCard label="Claims" value={rows.length} />
+                      <MetricCard label="Verified" value={counts.replicated} />
+                      <MetricCard label="Partial" value={counts["partially replicated"]} />
+                      <MetricCard label="Inconclusive" value={counts.untestable} />
+                      <MetricCard
+                        label="Coverage"
+                        value={
+                          rows.length > 0
+                            ? `${Math.round((rows.filter((r) => r.measured !== null).length / rows.length) * 100)}%`
+                            : "—"
+                        }
+                      />
+                    </dl>
+                    <VerdictSummary counts={counts} />
+                  </>
                 )}
                 {claimsQuery.isLoading ? (
                   <LoadingState label="Loading claims…" />

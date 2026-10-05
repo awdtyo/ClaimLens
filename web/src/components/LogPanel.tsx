@@ -80,26 +80,26 @@ export default function LogPanel({ events, connected, retries, complete }: LogPa
         role="log"
         aria-live={paused ? "off" : "polite"}
         aria-label="Pipeline log"
-        className="h-64 overflow-y-auto rounded-lg border border-gray-200 bg-gray-950 p-3 font-mono text-xs text-gray-100 dark:border-gray-800"
+        className="cl-log h-48 overflow-y-auto p-3"
       >
         {events.length === 0 ? (
-          <p className="text-gray-400">Waiting for pipeline events…</p>
+          <p className="opacity-60">Waiting for pipeline events…</p>
         ) : (
           <ol className="flex flex-col gap-0.5">
             {events.map((event, i) => (
               <li key={`${event.ts ?? i}-${i}`} className="break-words">
-                <span className="text-gray-500">
+                <span className="opacity-60">
                   {event.ts ? new Date(event.ts).toLocaleTimeString() : "—"}{" "}
                 </span>
-                <span className="text-blue-300">[{event.stage}]</span>{" "}
+                <span className="text-[var(--accent-2)]">[{event.stage}]</span>{" "}
                 <span
                   className={cn(
-                    event.status === "failed" ? "text-red-300" : "text-gray-100",
+                    event.status === "failed" ? "text-[var(--bad)]" : undefined,
                   )}
                 >
                   {event.status}
                 </span>
-                {event.message && <span className="text-gray-300"> — {event.message}</span>}
+                {event.message && <span className="opacity-80"> — {event.message}</span>}
               </li>
             ))}
           </ol>
