@@ -395,6 +395,172 @@ body {
   transition: width 0.4s ease;
 }
 
+/* ---- Audit workspace: precise three-column research layout ---- */
+.audit-workspace {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 340px;
+  gap: 24px;
+  align-items: start;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+@media (width <= 1280px) and (width > 1024px) {
+  .audit-workspace {
+    grid-template-columns: 200px minmax(0, 1fr) 320px;
+  }
+}
+
+/* 900–1199px is handled below: evidence becomes a drawer. */
+@media (width <= 1199px) and (width > 900px) {
+  .audit-workspace {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+  .audit-evidence-col {
+    display: none;
+  }
+}
+
+/* <=900px: single-column workspace, natural page scroll. */
+@media (width <= 900px) {
+  .audit-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .audit-sidebar-col,
+  .audit-evidence-col {
+    display: none;
+  }
+}
+
+/* Desktop app-like independent scrolling (fine pointers only). */
+@media (width > 900px) and (pointer: fine) {
+  .audit-scroll {
+    max-height: calc(100vh - 150px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+}
+
+/* ---- Audit sidebar ---- */
+.audit-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.42rem 0.6rem 0.42rem 0.75rem;
+  border-left: 2px solid transparent;
+  border-radius: 0 6px 6px 0;
+  font-size: 0.8125rem;
+  color: var(--text-2);
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.audit-nav-item:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.audit-nav-item[aria-current="true"] {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---- Claim table ---- */
+.claim-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.claim-table th {
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.claim-row {
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.claim-row:last-child {
+  border-bottom: none;
+}
+
+.claim-row:hover {
+  background: var(--surface-2);
+}
+
+.claim-row[aria-selected="true"] {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.claim-row[aria-selected="true"] .claim-cell-text {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.claim-table td {
+  padding: 1rem 0.75rem;
+  vertical-align: top;
+}
+
+/* ---- Evidence inspector ---- */
+.evidence-panel {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  font-size: 0.875rem;
+}
+
+.evidence-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.9rem 0;
+}
+
+/* ---- Bottom sheet (mobile evidence) ---- */
+.cl-sheet-overlay {
+  animation: fade-in 0.18s ease;
+}
+
+.cl-sheet {
+  animation: sheet-up 0.24s ease;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(32px);
+    opacity: 0;
+  }
+}
+
+/* ---- Left drawer (mobile audit nav) ---- */
+.cl-left-drawer {
+  animation: drawer-in 0.22s ease;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+}
+
 /* Respect reduced-motion preferences. */
 @media (prefers-reduced-motion: reduce) {
   *,

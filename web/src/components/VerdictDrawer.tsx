@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClaimRow } from "../lib/claims";
 import { formatValue } from "../lib/format";
+import { verdictMeta } from "../lib/verdict";
 import { cn } from "../lib/utils";
 import { Button } from "./ui";
 
@@ -34,27 +35,67 @@ export default function VerdictDrawer({ row, onClose, onViewLogs }: VerdictDrawe
   }, [onClose]);
 
   const config = primaryEvidence?.config as Record<string, unknown> | undefined;
+  const tolerance = (claim as unknown as { tolerance?: number | null }).tolerance ?? null;
+  const meta = verdict ? verdictMeta(verdict.status) : null;
+  const MetaIcon = meta?.icon;
 
   return (
     <div className="cl-drawer-overlay fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby="verdict-drawer-heading">
       <div aria-hidden="true" className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <aside className="cl-drawer absolute right-0 top-0 flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-5">
+      <aside className="cl-drawer absolute right-0 top-0 flex h-full w-full max-w-[540px] flex-col gap-4 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-5">
         <div className="flex items-start justify-between gap-2">
-          <h2
-            id="verdict-drawer-heading"
-            ref={headingRef}
-            tabIndex={-1}
-            className="cl-h2 outline-none"
-          >
-            Why this verdict?
-          </h2>
+          <div>
+            <p className="cl-meta font-medium uppercase tracking-[0.12em]">
+              Claim {row.claim.id}
+            </p>
+            <h2
+              id="verdict-drawer-heading"
+              ref={headingRef}
+              tabIndex={-1}
+              className="cl-h2 mt-0.5 outline-none"
+            >
+              {verdict && meta && MetaIcon ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <MetaIcon size={16} aria-hidden="true" /> {meta.label}
+                </span>
+              ) : (
+                "Why this verdict?"
+              )}
+            </h2>
+          </div>
           <Button variant="outline" size="sm" onClick={onClose} aria-label="Close verdict details">
             Close
           </Button>
         </div>
-        <p className="cl-meta">
-          {claim.id} · {verdict?.status ?? "no verdict yet"}
-        </p>
+        <p className="text-sm leading-relaxed">{claim.text}</p>
+        <div className="cl-surface-2 grid grid-cols-3 gap-2 p-3" aria-label="Published versus reproduced">
+          <div>
+            <p className="cl-meta font-medium uppercase tracking-[0.1em]">Published result</p>
+            <p className="mt-0.5 font-mono text-base">{formatValue(claim.reported_value)}</p>
+          </div>
+          <div>
+            <p className="cl-meta font-medium uppercase tracking-[0.1em]">Reproduced result</p>
+            <p className="mt-0.5 font-mono text-base">{formatValue(row.measured)}</p>
+          </div>
+          <div>
+            <p className="cl-meta font-medium uppercase tracking-[0.1em]">Difference</p>
+            <p className="mt-0.5 font-mono text-base">
+              {claim.reported_value != null && row.measured != null
+                ? `${(row.measured - claim.reported_value) > 0 ? "+" : ""}${(row.measured - claim.reported_value).toFixed(3)}`
+                : "—"}
+            </p>
+            <p className="cl-meta mt-0.5">
+              Within tolerance:{" "}
+              {claim.reported_value != null && row.measured != null && tolerance != null
+                ? Math.abs(row.measured - claim.reported_value) <= tolerance
+                  ? "✓ Yes"
+                  : "✗ No"
+                : verdict
+                  ? "see rationale"
+                  : "—"}
+            </p>
+          </div>
+        </div>
         <div role="tablist" aria-label="Verdict details" className="cl-tabs flex gap-1 border-b border-[var(--border)]">
           {TABS.map((t) => (
             <button
