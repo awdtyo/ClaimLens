@@ -1,23 +1,11 @@
+import { FileSearch } from "lucide-react";
 import type { ButtonHTMLAttributes, HTMLAttributes } from "react";
 import { cn } from "../lib/utils";
 
-/** Minimal shadcn/ui-style primitives (Tailwind + class-variance pattern). */
+/** Minimal primitives bound to the editorial theme tokens in index.css. */
 
 type ButtonVariant = "default" | "outline" | "ghost" | "destructive";
 type ButtonSize = "sm" | "md";
-
-const buttonVariants: Record<ButtonVariant, string> = {
-  default: "bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600",
-  outline:
-    "border border-gray-300 bg-transparent hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800",
-  ghost: "bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800",
-  destructive: "bg-red-600 text-white hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600",
-};
-
-const buttonSizes: Record<ButtonSize, string> = {
-  sm: "h-8 px-3 text-sm",
-  md: "h-10 px-4 text-sm",
-};
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -35,10 +23,13 @@ export function Button({
     <button
       type={type}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors",
-        "disabled:pointer-events-none disabled:opacity-50",
-        buttonVariants[variant],
-        buttonSizes[size],
+        "cl-btn",
+        variant === "default" && "cl-btn-primary",
+        variant === "outline" && "cl-btn-outline",
+        variant === "ghost" && "bg-transparent text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]",
+        variant === "destructive" &&
+          "bg-[var(--bad)] text-white hover:brightness-110 dark:bg-[var(--bad-soft)] dark:text-[var(--bad)] dark:ring-1 dark:ring-inset dark:ring-[var(--bad)]",
+        size === "sm" && "cl-btn-sm",
         className,
       )}
       {...props}
@@ -47,16 +38,7 @@ export function Button({
 }
 
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn(
-        "rounded-lg border border-gray-200 bg-white shadow-sm",
-        "dark:border-gray-800 dark:bg-gray-900",
-        className,
-      )}
-      {...props}
-    />
-  );
+  return <div className={cn("cl-surface p-4", className)} {...props} />;
 }
 
 export function EmptyState({
@@ -69,9 +51,10 @@ export function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-gray-300 px-6 py-10 text-center dark:border-gray-700">
-      <p className="font-medium">{title}</p>
-      {hint && <p className="max-w-md text-sm text-gray-600 dark:text-gray-400">{hint}</p>}
+    <div className="cl-surface-2 flex flex-col items-center gap-2 border-dashed px-6 py-10 text-center">
+      <FileSearch size={20} aria-hidden="true" className="text-[var(--text-2)]" />
+      <p className="text-[0.9375rem] font-medium">{title}</p>
+      {hint && <p className="cl-meta max-w-md">{hint}</p>}
       {action}
     </div>
   );
@@ -89,10 +72,13 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className="flex flex-col items-start gap-2 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+      className="flex flex-col items-start gap-2 rounded-[10px] border border-[var(--border)] bg-[var(--bad-soft)] px-4 py-3 text-sm text-[var(--bad)]"
     >
-      <p className="font-medium">{title}</p>
-      <p>{message}</p>
+      <p className="flex items-center gap-1.5 font-medium">
+        <span aria-hidden="true">⚠</span>
+        <span>{title}</span>
+      </p>
+      <p className="opacity-90">{message}</p>
       {onRetry && (
         <Button variant="outline" size="sm" onClick={onRetry}>
           Retry
@@ -107,13 +93,13 @@ export function LoadingState({ label }: { label: string }) {
     <div
       role="status"
       aria-live="polite"
-      className="flex items-center gap-3 rounded-lg border border-gray-200 px-4 py-6 dark:border-gray-800"
+      className="cl-surface flex items-center gap-3 px-4 py-5"
     >
       <span
         aria-hidden="true"
-        className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600 dark:border-gray-700 dark:border-t-blue-400"
+        className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]"
       />
-      <p className="text-sm text-gray-600 dark:text-gray-400">{label}</p>
+      <p className="cl-meta">{label}</p>
     </div>
   );
 }
@@ -122,8 +108,7 @@ export function Chip({ className, ...props }: HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
-        "bg-gray-100 text-gray-700 ring-gray-500/20 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-400/20",
+        "inline-flex items-center gap-1 rounded-full bg-[var(--muted-soft)] px-2 py-0.5 text-xs font-medium text-[var(--muted)] ring-1 ring-inset ring-[var(--border)]",
         className,
       )}
       {...props}

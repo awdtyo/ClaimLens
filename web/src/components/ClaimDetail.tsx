@@ -3,11 +3,12 @@ import type { CodeClaim } from "../api/code";
 import type { Assumption, AssumptionEffect } from "../api/models";
 import type { ClaimRow } from "../lib/claims";
 import { formatValue } from "../lib/format";
-import { cn } from "../lib/utils";
 import CodeTab, { type HighlightRequest } from "./CodeTab";
+import EvidenceTrail from "./EvidenceTrail";
 import FindingsList from "./FindingsList";
 import { Button, Chip } from "./ui";
 import VerdictBadge from "./VerdictBadge";
+import VerdictDrawer from "./VerdictDrawer";
 
 interface ClaimDetailProps {
   row: ClaimRow;
@@ -133,6 +134,7 @@ export default function ClaimDetail({
   const { claim, verdict } = row;
   const [tab, setTab] = useState<"details" | "code" | "findings">("details");
   const [highlightRequest, setHighlightRequest] = useState<HighlightRequest | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const findings = verdict?.code_findings ?? [];
   const reason = verdict?.reason ?? null;
   const reported = claim.reported_value ?? null;
@@ -156,7 +158,7 @@ export default function ClaimDetail({
       <div
         role="tablist"
         aria-label={`Claim ${claim.id} sections`}
-        className="flex gap-1 border-b border-gray-200 dark:border-gray-800"
+        className="cl-tabs flex gap-1 border-b border-[var(--border)]"
         onKeyDown={(e) => {
           if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
           e.preventDefault();
@@ -175,12 +177,7 @@ export default function ClaimDetail({
             aria-controls={`claim-${claim.id}-panel-${t}`}
             id={`claim-${claim.id}-tab-${t}`}
             onClick={() => setTab(t)}
-            className={cn(
-              "rounded-t-md px-3 py-1.5 text-sm font-medium",
-              tab === t
-                ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100"
-                : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800/50",
-            )}
+            className="cl-tab"
           >
             {t === "details" ? "Details" : t === "code" ? "Code" : `Findings (${findings.length})`}
           </button>
@@ -225,13 +222,18 @@ export default function ClaimDetail({
       {verdict && (
         <div className="flex flex-col gap-1">
           <h4 className="text-sm font-medium">Why this verdict</h4>
-          <p className="text-sm text-gray-700 dark:text-gray-300">{verdict.rationale}</p>
+          <p className="text-sm text-[var(--text-2)]">{verdict.rationale}</p>
           {reason && (
-            <p className="rounded-md bg-gray-100 px-2 py-1 text-sm text-gray-700 ring-1 ring-inset ring-gray-500/20 dark:bg-gray-800 dark:text-gray-300">
+            <p className="rounded-md bg-[var(--muted-soft)] px-2 py-1 text-sm ring-1 ring-inset ring-[var(--border)]">
               <span className="font-medium">Untestable reason: </span>
               {reason}
             </p>
           )}
+          <div>
+            <Button variant="outline" size="sm" onClick={() => setDrawerOpen(true)}>
+              Why this verdict?
+            </Button>
+          </div>
         </div>
       )}
 
@@ -279,18 +281,29 @@ export default function ClaimDetail({
       )}
 
       {row.primaryEvidence && (
-        <div className="flex flex-col gap-1 text-sm">
-          <h4 className="font-medium">Evidence</h4>
-          <p className="text-gray-600 dark:text-gray-400">{row.primaryEvidence.method}</p>
+        <div className="flex flex-col gap-2 text-sm">
+          <h4 className="font-medium">Key Evidence</h4>
+          <EvidenceTrail row={row} />
+          <div>
+            <p className="cl-meta">Method</p>
+            <p className="text-[var(--text-2)]">{row.primaryEvidence.method}</p>
+          </div>
           {row.primaryEvidence.logs_ref && (
-            <p className="text-xs text-gray-600 dark:text-gray-400">
-              Log: <code>{row.primaryEvidence.logs_ref}</code>{" "}
+            <p className="cl-meta">
+              Log: <code className="cl-mono">{row.primaryEvidence.logs_ref}</code>{" "}
               <Button variant="ghost" size="sm" onClick={onViewLogs}>
                 View in run log
               </Button>
             </p>
           )}
         </div>
+      )}
+      {drawerOpen && (
+        <VerdictDrawer
+          row={row}
+          onClose={() => setDrawerOpen(false)}
+          onViewLogs={onViewLogs}
+        />
       )}
       </div>
       ) : tab === "code" ? (

@@ -111,8 +111,8 @@ export default function ClaimsList({ rows, selectedId, onSelect }: ClaimsListPro
           hint="Clear the search or choose a different verdict filter."
         />
       ) : (
-        <ul aria-label="Claims" className="flex flex-col gap-2">
-          {visible.map((row) => {
+        <ol aria-label="Claims" className="cl-surface divide-y divide-[var(--border)] overflow-hidden !p-0">
+          {visible.map((row, i) => {
             const selected = row.claim.id === selectedId;
             const scaled = row.verdict?.scaled || (row.scaleFactor ?? 1) < 1;
             return (
@@ -122,14 +122,15 @@ export default function ClaimsList({ rows, selectedId, onSelect }: ClaimsListPro
                   onClick={() => onSelect(row.claim.id)}
                   aria-pressed={selected}
                   aria-label={`Claim ${row.claim.id}: ${row.verdict?.status ?? "no verdict yet"}`}
-                  className={`flex w-full flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
-                    selected
-                      ? "border-blue-600 ring-1 ring-blue-600 dark:border-blue-400 dark:ring-blue-400"
-                      : "border-gray-200 dark:border-gray-800"
+                  className={`cl-lift flex w-full flex-col gap-1 px-4 py-3 text-left ${
+                    selected ? "bg-[var(--accent-soft)]" : ""
                   }`}
                 >
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
+                    <span className="cl-mono text-xs text-[var(--text-2)]">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <span className="cl-mono text-xs text-[var(--text-2)]">
                       {row.claim.id}
                     </span>
                     {row.verdict ? (
@@ -151,17 +152,28 @@ export default function ClaimsList({ rows, selectedId, onSelect }: ClaimsListPro
                       </Chip>
                     )}
                   </span>
-                  <span className="text-sm">{row.claim.text}</span>
-                  <span className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-600 dark:text-gray-400">
+                  <span className="text-[0.9375rem]">{row.claim.text}</span>
+                  <span className="cl-meta flex flex-wrap gap-x-4 gap-y-0.5">
                     <span>Reported: {formatValue(row.claim.reported_value)}</span>
-                    <span>Measured: {formatValue(row.measured)}</span>
+                    <span>Reproduced: {formatValue(row.measured)}</span>
+                    {row.claim.reported_value != null && row.measured != null && (
+                      <span>
+                        Difference:{" "}
+                        {(() => {
+                          const d = row.measured - row.claim.reported_value;
+                          const pct = (d / row.claim.reported_value) * 100;
+                          return `${d > 0 ? "+" : ""}${d.toFixed(2)} (${pct > 0 ? "+" : ""}${pct.toFixed(1)}%)`;
+                        })()}
+                      </span>
+                    )}
                     <span className="truncate">{row.claim.source_ref}</span>
+                    <span className="ml-auto font-medium text-[var(--accent-2)]">View Details →</span>
                   </span>
                 </button>
               </li>
             );
           })}
-        </ul>
+        </ol>
       )}
     </div>
   );

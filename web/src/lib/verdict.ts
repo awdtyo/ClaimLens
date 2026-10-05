@@ -35,30 +35,26 @@ const META: Record<VerdictBucket, Omit<VerdictMeta, "label">> = {
   replicated: {
     bucket: "replicated",
     icon: CheckCircle2,
-    badgeClass:
-      "bg-green-100 text-green-800 ring-green-600/20 dark:bg-green-900/40 dark:text-green-200 dark:ring-green-400/20",
-    dotClass: "bg-green-600 dark:bg-green-400",
+    badgeClass: "bg-[var(--ok-soft)] text-[var(--ok)] ring-[var(--ok)]/20",
+    dotClass: "bg-[var(--ok)]",
   },
   "partially replicated": {
     bucket: "partially replicated",
     icon: MinusCircle,
-    badgeClass:
-      "bg-amber-100 text-amber-800 ring-amber-600/20 dark:bg-amber-900/40 dark:text-amber-200 dark:ring-amber-400/20",
-    dotClass: "bg-amber-600 dark:bg-amber-400",
+    badgeClass: "bg-[var(--warn-soft)] text-[var(--warn)] ring-[var(--warn)]/20",
+    dotClass: "bg-[var(--warn)]",
   },
   "not replicated": {
     bucket: "not replicated",
     icon: XCircle,
-    badgeClass:
-      "bg-red-100 text-red-800 ring-red-600/20 dark:bg-red-900/40 dark:text-red-200 dark:ring-red-400/20",
-    dotClass: "bg-red-600 dark:bg-red-400",
+    badgeClass: "bg-[var(--bad-soft)] text-[var(--bad)] ring-[var(--bad)]/20",
+    dotClass: "bg-[var(--bad)]",
   },
   untestable: {
     bucket: "untestable",
     icon: CircleDashed,
-    badgeClass:
-      "bg-gray-100 text-gray-700 ring-gray-500/20 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-400/20",
-    dotClass: "bg-gray-500 dark:bg-gray-400",
+    badgeClass: "bg-[var(--muted-soft)] text-[var(--muted)] ring-[var(--border)]",
+    dotClass: "bg-[var(--muted)]",
   },
 };
 

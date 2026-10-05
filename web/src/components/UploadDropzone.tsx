@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
 import { UploadCloud } from "lucide-react";
 import { checkUploadFile, UPLOAD_ERROR_MESSAGE } from "../lib/upload";
-import { cn } from "../lib/utils";
 import { Button } from "./ui";
 
 interface UploadDropzoneProps {
@@ -56,19 +55,15 @@ export default function UploadDropzone({ onFile, uploading, error }: UploadDropz
         }}
         tabIndex={0}
         aria-label="Upload a paper PDF"
-        className={cn(
-          "flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors",
-          dragging
-            ? "border-blue-600 bg-blue-50 dark:border-blue-400 dark:bg-blue-950"
-            : "border-gray-300 hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-600",
-        )}
+        data-dragging={dragging}
+        className="cl-dropzone flex cursor-pointer flex-col items-center gap-2 px-6 py-10 text-center"
       >
-        <UploadCloud size={28} aria-hidden="true" className="text-gray-500 dark:text-gray-400" />
-        <p className="font-medium">
-          {uploading ? "Uploading…" : "Drop a paper PDF here, or click to choose one"}
+        <UploadCloud size={24} aria-hidden="true" className="text-[var(--text-2)]" />
+        <p className="text-[0.9375rem] font-medium">
+          {uploading ? "Uploading…" : "Drag & drop your PDF here or browse files"}
         </p>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          PDF only, 30 MB maximum.
+        <p className="cl-meta">
+          PDF · Up to 30 MB
         </p>
         <input
           ref={inputRef}
@@ -85,18 +80,18 @@ export default function UploadDropzone({ onFile, uploading, error }: UploadDropz
         />
       </div>
       {(localError || error) && (
-        <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">
+        <p role="alert" className="mt-2 text-sm text-[var(--bad)]">
           {localError ?? error}
         </p>
       )}
-      <div className="mt-3 flex justify-end">
+      <div className="mt-3 flex justify-center">
         <Button
           variant="outline"
           size="sm"
           disabled={uploading}
           onClick={() => inputRef.current?.click()}
         >
-          Choose file
+          Choose PDF
         </Button>
       </div>
     </div>
