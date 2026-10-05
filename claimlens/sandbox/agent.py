@@ -38,10 +38,23 @@ SUMMARY_CHARS = 200
 
 SYSTEM_PROMPT = (
     "You reproduce one paper claim with a small sandbox experiment. "
-    "Write code with write_file, run it with run_in_sandbox, read results with read_file. "
+    "Act ONLY by calling functions: write_file, run_in_sandbox, read_file, "
+    "install_package, report_result. Never narrate instead of calling. "
+    "The workdir starts empty and there are no dataset files: generate a "
+    "small synthetic dataset inside your own code. "
+    "Only the Python standard library is installed. If you need numpy, "
+    "call install_package('numpy') exactly once first; otherwise never "
+    "call install_package. Do not import torch, tensorflow or sklearn. "
+    "Your FIRST action must be write_file with the complete experiment "
+    "script (or install_package('numpy') first if you need numpy). "
+    "Never call install_package for anything else, and at most once total. "
+    "Call run_in_sandbox no later than your SECOND turn: a failing run "
+    "teaches more than a perfect file. Never rewrite the same file twice "
+    "without running it in between. "
+    "Keep each file under 60 lines of complete, runnable code. "
     "Needed PyPI packages go through install_package. "
-    "When a run prints the final number, reply with JSON "
-    '{"measured_value": <number>, "method": "<one line>"} and stop. '
+    "When a run prints the final number, call report_result with "
+    "measured_value and a one-line method, then stop. "
     "Print the result inside the sandbox as 'MEASURED <number>'. "
     "Never invent a number: if the code fails, say why instead."
 )
@@ -64,6 +77,8 @@ def _tool_summary(name: str, args: Any) -> str:
         return f"install_package package={items.get('package')!r}"
     if name == "read_file":
         return f"read_file path={items.get('path')!r}"
+    if name == "report_result":
+        return f"report_result measured_value={items.get('measured_value')!r}"
     return f"{name} {_short(json.dumps(args, default=str))}"
 
 
@@ -146,6 +161,7 @@ def run_agent_for_claim(
     workdir = Path(tmp.name)
     tools = SandboxTools(workdir, run_fn=run_fn)
     iterations = 0
+    writes_since_run = 0
     last_stdout = ""
     last_exit: int | None = None
 
@@ -220,7 +236,9 @@ def run_agent_for_claim(
                 )
                 continue
 
-            for call in calls:
+            worklist = list(calls)
+            while worklist:
+                call = worklist.pop(0)
                 name = str(call["name"])
                 args = call["arguments"]
                 run.emit(
@@ -236,10 +254,36 @@ def run_agent_for_claim(
                     outcome = tools.dispatch(name, args)
                 except Exception as e:  # noqa: BLE001 - tool errors are observations, not crashes.
                     outcome = {"ok": False, "error": _short(e)}
+                if name == "report_result" and outcome.get("ok"):
+                    measured_via_tool = _extract_measured(outcome)
+                    if measured_via_tool is not None:
+                        evidence_id = f"e_{claim_id}"
+                        logs_ref = _write_log(run_dir, evidence_id, last_stdout, "")
+                        run.emit(
+                            "sandbox",
+                            "progress",
+                            f"{claim_id}: measured {measured_via_tool}",
+                            {"claim_id": claim_id, "measured_value": measured_via_tool},
+                        )
+                        return Evidence(
+                            id=evidence_id,
+                            claim_id=claim_id,
+                            method=str(outcome.get("method", ""))
+                            or f"docker: agent experiment for {claim_id} at scale {item.scale_factor}",
+                            measured_value=measured_via_tool,
+                            config=dict(item.config),
+                            logs_ref=logs_ref,
+                            scale_factor=item.scale_factor,
+                            code_dir=f"code/{claim_id}",
+                            iterations=iterations,
+                        )
                 if name == "write_file" and outcome.get("ok"):
                     # File name only: contents never leave the workdir in events.
                     fallback = args.get("path", "") if isinstance(args, dict) else ""
                     written = str(outcome.get("path", fallback))
+                    # Snapshot immediately: a write is a code iteration, and
+                    # capped runs without a run would otherwise lose all code.
+                    _snapshot(workdir, code_root / f"iter_{iterations + 1}")
                     run.emit(
                         "code_written",
                         "progress",
@@ -272,12 +316,36 @@ def run_agent_for_claim(
                 if outcome.get("stdout") or outcome.get("stderr"):
                     shown["stdout_tail"] = _short(outcome.get("stdout", ""))
                     shown["stderr_tail"] = _short(outcome.get("stderr", ""))
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": f"Tool {name} result: {json.dumps(shown, default=str)}",
-                    }
-                )
+                observation = f"Tool {name} result: {json.dumps(shown, default=str)}"
+                if name == "write_file" and outcome.get("ok"):
+                    writes_since_run += 1
+                    if writes_since_run >= 2:
+                        observation += (
+                            f" IMPORTANT: you have written {writes_since_run} files "
+                            "without running anything. Call run_in_sandbox NOW."
+                        )
+                    if writes_since_run >= 3 and written.endswith(".py"):
+                        # The model refines instead of running; guarantee
+                        # progress by executing the main script (the largest
+                        # .py: the experiment, not helper snippets). The
+                        # model still owns the code and the final value.
+                        candidates = sorted(workdir.glob("*.py"), key=lambda p: p.stat().st_size)
+                        target = candidates[-1].name if candidates else written
+                        run.emit(
+                            "sandbox",
+                            "progress",
+                            f"{claim_id}: auto-running {target}",
+                            {"claim_id": claim_id, "tool": "run_in_sandbox"},
+                        )
+                        worklist.append(
+                            {
+                                "name": "run_in_sandbox",
+                                "arguments": {"command": ["python", target]},
+                            }
+                        )
+                if name == "run_in_sandbox":
+                    writes_since_run = 0
+                messages.append({"role": "user", "content": observation})
 
         run.emit(
             "sandbox", "progress", f"{claim_id}: iteration cap reached", {"claim_id": claim_id}

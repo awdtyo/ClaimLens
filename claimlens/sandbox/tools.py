@@ -1,15 +1,16 @@
 """Sandbox tools exposed to the experiment agent (Stage 5).
 
 The model reaches the sandbox only through these tools, issued as
-function calls: ``run_in_sandbox``, ``read_file``, ``write_file`` and
-``install_package``. File tools operate inside one claim workdir on the
-host; execution itself always goes through
+function calls: ``run_in_sandbox``, ``read_file``, ``write_file``,
+``install_package`` and ``report_result``. File tools operate inside
+one claim workdir on the host; execution itself always goes through
 :mod:`claimlens.sandbox.docker_runner`, never the host.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,21 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {"package": {"type": "string", "description": "E.g. numpy==1.26.4."}},
             "required": ["package"],
+        },
+    },
+    {
+        "name": "report_result",
+        "description": (
+            "Finish the experiment: report the final measured number from a "
+            "sandbox run. Call once, after run_in_sandbox printed it."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "measured_value": {"type": "number"},
+                "method": {"type": "string"},
+            },
+            "required": ["measured_value"],
         },
     },
 ]
@@ -133,6 +149,19 @@ class SandboxTools:
             self.packages.append(name)
         return {"ok": True, "package": name, "pending": list(self.packages)}
 
+    def report_result(self, measured_value: Any, method: str = "") -> dict[str, Any]:
+        """Record the agent's final measurement (validated, never invented here)."""
+        try:
+            number = float(measured_value)
+        except (TypeError, ValueError):
+            return {
+                "ok": False,
+                "error": f"measured_value must be a number, got {measured_value!r}.",
+            }
+        if not math.isfinite(number):
+            return {"ok": False, "error": "measured_value must be finite."}
+        return {"ok": True, "measured_value": number, "method": method}
+
     def run_in_sandbox(self, command: list[str], timeout_s: int | None = None) -> dict[str, Any]:
         if not command or not all(isinstance(part, str) for part in command):
             return {"ok": False, "error": "command must be a non-empty list of strings."}
@@ -176,4 +205,6 @@ class SandboxTools:
             )
         if name == "install_package":
             return self.install_package(str(args.get("package", "")))
+        if name == "report_result":
+            return self.report_result(args.get("measured_value"), str(args.get("method", "")))
         return {"ok": False, "error": f"Unknown tool: {name!r}."}
