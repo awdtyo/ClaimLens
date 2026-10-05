@@ -59,13 +59,27 @@ def test_chain_report_renders(isolated_run, fixtures_dir: Path) -> None:  # type
     assert "c1" in text and "partially replicated" in text
 
 
-def test_full_pipeline_still_blocked_at_sandbox(isolated_run, fixtures_dir: Path) -> None:  # type: ignore[no-untyped-def]
-    """Documents the Task 5 frontier: sandbox (Part 2) is not implemented."""
+def test_full_pipeline_yields_untestable_without_agent_script(
+    isolated_run, fixtures_dir: Path
+) -> None:  # type: ignore[no-untyped-def]
+    """End-to-end frontier: stages all run, but the fake provider has no
+    canned agent script, so nothing is measured and every claim resolves
+    as untestable."""
+    from claimlens.claims.schema import Verdict
     from claimlens.pipeline import run_pipeline
 
-    with pytest.raises(NotImplementedError):
-        run_pipeline(
-            pdf_path=fixtures_dir / "toy_paper.pdf",
-            run_id="chain-blocked",
-            runs_root=Path(isolated_run.run_dir).parent,  # type: ignore[arg-type]
-        )
+    run = run_pipeline(
+        pdf_path=fixtures_dir / "toy_paper.pdf",
+        run_id="chain-untestable",
+        runs_root=Path(isolated_run.run_dir).parent,  # type: ignore[arg-type]
+    )
+    run_dir = Path(run.run_dir)  # type: ignore[arg-type]
+    assert (run_dir / "07_report.json").exists()
+    verdicts = [
+        Verdict.model_validate(item)
+        for item in json.loads((run_dir / "06_verify.json").read_text(encoding="utf-8"))
+    ]
+    assert {verdict.claim_id for verdict in verdicts} == {"c1", "c2", "c3"}
+    # Nothing is measured either way: untestable with or without the
+    # blocking-finding wiring (which lands later in the Part 2 stack).
+    assert all(verdict.status in ("untestable", "untestable at this scale") for verdict in verdicts)

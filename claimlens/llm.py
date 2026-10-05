@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -38,8 +39,148 @@ def approx_tokens(text: str) -> int:
     return _approx_tokens(text)
 
 
+def _block_text(content: Any) -> str:
+    """Text of one message's content, ignoring image blocks.
+
+    Content is usually a string; it may also be a list of blocks like
+    ``{"text": ...}`` and ``{"image": {"mime": ..., "b64": ...}}`` used
+    for vision calls. Image bytes never count as text (they would
+    inflate token estimates by megabytes).
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = [str(block.get("text", "")) for block in content if isinstance(block, dict)]
+        return "\n".join(text for text in texts if text)
+    return str(content)
+
+
 def _messages_text(messages: list[dict[str, Any]]) -> str:
-    return "\n".join(str(m.get("content", "")) for m in messages)
+    return "\n".join(_block_text(m.get("content", "")) for m in messages)
+
+
+def _json_spans(text: str) -> list[tuple[int, int]]:
+    """Balanced ``{...}`` / ``[...]`` spans, largest first, strings respected."""
+    spans: list[tuple[int, int]] = []
+    for i, ch in enumerate(text):
+        if ch not in "{[":
+            continue
+        depth = 0
+        in_str = False
+        esc = False
+        for j in range(i, len(text)):
+            c = text[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+            elif c == '"':
+                in_str = True
+            elif c in "{[":
+                depth += 1
+            elif c in "}]":
+                depth -= 1
+                if depth == 0:
+                    spans.append((i, j + 1))
+                    break
+    spans.sort(key=lambda span: span[1] - span[0], reverse=True)
+    return spans
+
+
+def _gemini_parts(content: Any) -> list[dict[str, Any]]:
+    """Translate message content into Gemini request parts.
+
+    Plain strings become one text part (unchanged behavior). Lists may
+    mix ``{"text": ...}`` blocks with ``{"image": {"mime": ...,
+    "b64": ...}}`` blocks, which become ``inlineData`` parts so page
+    images travel as vision input instead of base64 text.
+    """
+    if isinstance(content, str):
+        return [{"text": content}]
+    if isinstance(content, list):
+        parts: list[dict[str, Any]] = []
+        for block in content:
+            if not isinstance(block, dict):
+                parts.append({"text": str(block)})
+            elif "image" in block and isinstance(block["image"], dict):
+                image = block["image"]
+                parts.append(
+                    {
+                        "inlineData": {
+                            "mimeType": str(image.get("mime", "image/png")),
+                            "data": str(image.get("b64", "")),
+                        }
+                    }
+                )
+            else:
+                parts.append({"text": str(block.get("text", ""))})
+        return parts or [{"text": ""}]
+    return [{"text": str(content)}]
+
+
+def _text_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copy messages with block content flattened to text.
+
+    Providers without image-part support receive the text blocks only;
+    image blocks become a short placeholder so nothing large leaks.
+    """
+    flat = []
+    for message in messages:
+        content = message.get("content", "")
+        if isinstance(content, list):
+            texts = [str(block.get("text", "")) for block in content if isinstance(block, dict)]
+            if any(isinstance(block, dict) and "image" in block for block in content):
+                texts.append("[image omitted: provider has no image-part support]")
+            content = "\n".join(text for text in texts if text)
+        flat.append({**message, "content": content})
+    return flat
+
+
+def _cacheable(result: Any, schema: dict | None) -> bool:
+    """Whether a gateway result may be written to the disk cache.
+
+    A ``{"text": ...}`` fallback against a requested schema means the
+    output failed to parse; caching it would poison stage retry loops,
+    which re-issue identical prompts and would replay the same garbage.
+    Schema-free text answers are still cached.
+    """
+    if schema is None:
+        return True
+    return not (isinstance(result, dict) and set(result) == {"text"})
+
+
+def _extract_json(text: str) -> Any:
+    """Parse model output as JSON, tolerating fences and chatter.
+
+    Tries the stripped text, then markdown-fence stripping, then the
+    largest balanced JSON substring. Raises ``ValueError`` when nothing
+    parses, so callers can fall back to ``{"text": ...}``.
+    """
+    stripped = text.strip()
+    try:
+        return json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    fenced = stripped
+    if fenced.startswith("```"):
+        fenced = fenced.split("\n", 1)[1] if "\n" in fenced else ""
+    if fenced.rstrip().endswith("```"):
+        fenced = fenced.rstrip()[:-3]
+    try:
+        return json.loads(fenced.strip())
+    except (json.JSONDecodeError, ValueError):
+        pass
+    for start, end in _json_spans(stripped):
+        try:
+            parsed = json.loads(stripped[start:end])
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(parsed, (dict, list)):
+            return parsed
+    raise ValueError("No JSON object found in model output.")
 
 
 def chunk_text(text: str, max_tokens: int) -> list[str]:
@@ -141,7 +282,8 @@ class LLMGateway:
             raise ValueError(
                 f"Unknown provider {provider!r}. Choose gemini, openrouter, ollama, fake."
             )
-        self._cache_write(cache_key, result)
+        if _cacheable(result, schema_dict):
+            self._cache_write(cache_key, result)
         self._log_call(task, role, model, messages, result, cached_hit=False, raw_text=raw_text)
         return result
 
@@ -182,13 +324,13 @@ class LLMGateway:
         api_key = self.config.gemini_api_key or os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is not set.")
-        system_texts = [str(m["content"]) for m in messages if m.get("role") == "system"]
+        system_texts = [_block_text(m["content"]) for m in messages if m.get("role") == "system"]
         contents = []
         for m in messages:
             if m.get("role") == "system":
                 continue
             role = "model" if m.get("role") == "assistant" else "user"
-            contents.append({"role": role, "parts": [{"text": str(m.get("content", ""))}]})
+            contents.append({"role": role, "parts": _gemini_parts(m.get("content", ""))})
         payload: dict[str, Any] = {"contents": contents}
         if system_texts:
             payload["system_instruction"] = {"parts": [{"text": "\n".join(system_texts)}]}
@@ -207,9 +349,22 @@ class LLMGateway:
         data = self._post_with_retry(url, {}, payload)
         try:
             parts = data["candidates"][0]["content"]["parts"]
-            raw_text = "".join(p.get("text", "") for p in parts)
+            calls = [
+                {
+                    "name": p["functionCall"].get("name", ""),
+                    "arguments": p["functionCall"].get("args", {}),
+                }
+                for p in parts
+                if isinstance(p, dict) and isinstance(p.get("functionCall"), dict)
+            ]
+            calls = [call for call in calls if call["name"]]
+            raw_text = "".join(str(p.get("text", "")) for p in parts if isinstance(p, dict))
         except (KeyError, IndexError, TypeError) as e:
             raise RuntimeError(f"Unexpected Gemini response shape: {data!r}") from e
+        if calls:
+            return {"tool_calls": calls, "text": raw_text}, json.dumps(
+                {"tool_calls": calls, "text": raw_text}
+            )
         return self._parse_json_or_text(raw_text), raw_text
 
     def _openrouter_complete(
@@ -222,7 +377,7 @@ class LLMGateway:
         api_key = self.config.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
         if not api_key:
             raise RuntimeError("OPENROUTER_API_KEY is not set.")
-        payload: dict[str, Any] = {"model": model, "messages": messages}
+        payload: dict[str, Any] = {"model": model, "messages": _text_messages(messages)}
         if schema is not None:
             payload["response_format"] = {
                 "type": "json_schema",
@@ -254,7 +409,11 @@ class LLMGateway:
         tools: list[dict[str, Any]] | None,
     ) -> tuple[Any, str]:
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-        payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": _text_messages(messages),
+            "stream": False,
+        }
         if schema is not None:
             payload["format"] = schema
         if tools is not None:
@@ -270,7 +429,10 @@ class LLMGateway:
 
     def _post_with_retry(self, url: str, headers: dict[str, str], payload: dict[str, Any]) -> Any:
         last_error: Exception | None = None
-        with httpx.Client(timeout=120.0) as client:
+        # Thinking models deliberate for minutes before answering; a short
+        # timeout would abort healthy turns and burn quota on retries.
+        display_url = re.sub(r"([?&]key=)[^&]*", r"\1<redacted>", url)
+        with httpx.Client(timeout=600.0) as client:
             for attempt in range(MAX_RETRIES + 1):
                 try:
                     resp = client.post(url, headers=headers, json=payload)
@@ -280,7 +442,7 @@ class LLMGateway:
                     continue
                 if resp.status_code in RETRY_STATUS:
                     last_error = RuntimeError(
-                        f"HTTP {resp.status_code} from {url}: {resp.text[:500]}"
+                        f"HTTP {resp.status_code} from {display_url}: {resp.text[:500]}"
                     )
                     self._sleep(attempt)
                     continue
@@ -288,10 +450,10 @@ class LLMGateway:
                     resp.raise_for_status()
                 except httpx.HTTPStatusError as e:
                     raise RuntimeError(
-                        f"HTTP {resp.status_code} from {url}: {resp.text[:500]}"
+                        f"HTTP {resp.status_code} from {display_url}: {resp.text[:500]}"
                     ) from e
                 return resp.json()
-        raise RuntimeError(f"Request to {url} failed after retries.") from last_error
+        raise RuntimeError(f"Request to {display_url} failed after retries.") from last_error
 
     def _sleep(self, attempt: int) -> None:
         if os.environ.get("CLAIMLENS_NO_SLEEP"):
@@ -317,8 +479,8 @@ class LLMGateway:
 
     def _parse_json_or_text(self, raw_text: str) -> Any:
         try:
-            return json.loads(raw_text)
-        except (json.JSONDecodeError, TypeError):
+            return _extract_json(raw_text)
+        except (json.JSONDecodeError, TypeError, ValueError):
             return {"text": raw_text}
 
     def _cache_key(

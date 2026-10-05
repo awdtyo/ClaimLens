@@ -198,8 +198,14 @@ def read_vision_tables(pages_png: list[tuple[int, bytes]], run: RunContext) -> l
                 {"role": "system", "content": VISION_SYSTEM},
                 {
                     "role": "user",
-                    "content": f"Transcribe the tables on page {page_number}. "
-                    f"Page image (base64 PNG): {image_b64}",
+                    # Image blocks become Gemini inlineData parts; other
+                    # providers receive the text with a placeholder.
+                    "content": [
+                        {
+                            "text": f"Transcribe the tables on page {page_number} from the attached image."
+                        },
+                        {"image": {"mime": "image/png", "b64": image_b64}},
+                    ],
                 },
             ],
             schema=VISION_SCHEMA,
