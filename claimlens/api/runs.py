@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import re
 from pathlib import Path
 from typing import Any
@@ -393,6 +394,33 @@ def get_run_code_file(
         if cid == claim_id and it == iteration and index == file_index:
             return FileResponse(path, media_type="text/plain", filename=name)
     raise HTTPException(status_code=404, detail="Unknown code file.")
+
+
+@router.get("/runs/{run_id}/code.zip")
+def get_run_code_zip(request: Request, run_id: str) -> StreamingResponse:
+    """Download all generated code as a zip archive.
+
+    Entries come only from the server-side enumeration above
+    (``<claim_id>/iter_<n>/<name>``), never from user input, so
+    crafted paths cannot escape the run directory. Returns 404 when
+    the run has no generated code yet.
+    """
+    import zipfile
+
+    run_dir = _resolve_run_dir(request, run_id)
+    entries = _enumerate_code(run_dir)
+    if not entries:
+        raise HTTPException(status_code=404, detail="No generated code yet.")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for claim_id, iteration, _, name, path in entries:
+            archive.write(path, arcname=f"{claim_id}/iter_{iteration}/{name}")
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{run_id}-code.zip"'},
+    )
 
 
 @router.get("/runs/{run_id}/{artifact}")

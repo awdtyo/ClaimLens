@@ -314,6 +314,44 @@
         }
       }
     },
+    "/api/runs/{run_id}/code.zip": {
+      "get": {
+        "summary": "Get Run Code Zip",
+        "description": "Download all generated code as a zip archive.\n\nEntries come only from the server-side enumeration above\n(``<claim_id>/iter_<n>/<name>``), never from user input, so\ncrafted paths cannot escape the run directory. Returns 404 when\nthe run has no generated code yet.",
+        "operationId": "get_run_code_zip_api_runs__run_id__code_zip_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{run_id}/{artifact}": {
       "get": {
         "summary": "Get Run Artifact",
