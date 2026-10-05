@@ -7,10 +7,9 @@
  * `GET /api/runs/{id}/code/{claimId}/{iteration}/{fileIndex}` — paths are
  * never constructed client-side.
  *
- * `code.zip` (`GET /api/runs/{id}/code.zip`) is the documented download
- * endpoint. The current `docs/openapi.json` does not yet describe it
- * (see PR notes); the frontend links to it by convention and shows an
- * error state when the backend does not serve it.
+ * `code.zip` (`GET /api/runs/{id}/code.zip`) downloads all generated
+ * code as a zip archive (server-enumerated entries, 404 when the run
+ * has no generated code yet).
  */
 import type { components } from "./types";
 
