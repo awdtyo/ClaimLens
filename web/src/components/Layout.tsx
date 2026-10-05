@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { GitFork, Moon, Sun } from "lucide-react";
+import { FlaskConical, GitFork, Moon, Sun } from "lucide-react";
 import { useTheme } from "../hooks/useTheme";
 import { cn } from "../lib/utils";
 
@@ -53,10 +53,34 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             compact ? "py-1.5" : "py-2.5",
           )}
         >
-          <Link to="/" className="flex items-baseline gap-2 text-[1.05rem] font-semibold tracking-tight">
-            ClaimLens
-            <span className="hidden font-normal text-[var(--text-2)] sm:inline text-xs">
-              research audits
+          <Link
+            to="/"
+            className="flex items-center gap-2 group"
+            aria-label="ClaimLens home"
+          >
+            {/* Flask icon — the lab identity mark */}
+            <span
+              className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors group-hover:bg-[var(--accent-soft)]"
+              aria-hidden="true"
+              style={{ background: "var(--accent-soft)" }}
+            >
+              <FlaskConical
+                size={15}
+                style={{ color: "var(--accent)" }}
+                strokeWidth={2}
+              />
+            </span>
+            {/* Wordmark: serif + sans pairing */}
+            <span className="flex items-baseline gap-1.5">
+              <span
+                className="cl-serif text-[1.15rem] leading-none tracking-tight"
+                style={{ color: "var(--text)" }}
+              >
+                ClaimLens
+              </span>
+              <span className="hidden text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--text-2)] sm:inline">
+                Research Lab
+              </span>
             </span>
           </Link>
           <nav aria-label="Primary" className="flex items-center gap-0.5">
@@ -121,13 +145,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {children}
       </main>
       <footer className="border-t border-[var(--border)]">
-        <div className="mx-auto flex max-w-6xl flex-col gap-1 px-4 py-5">
-          <p className="text-sm font-medium">ClaimLens</p>
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-6">
+          <div className="flex items-center gap-2">
+            <FlaskConical size={13} style={{ color: "var(--accent)" }} aria-hidden="true" />
+            <p className="cl-serif text-sm font-medium">ClaimLens</p>
+          </div>
           <p className="cl-meta max-w-2xl">
             ClaimLens performs reduced-scale reproduction experiments. A failed
             reproduction does not automatically prove that the original paper
             is incorrect. Verdicts are computed by the backend; the frontend
             never decides whether results match.
+          </p>
+          <p className="cl-meta mt-1">
+            <a
+              href="https://github.com/awdtyo/ClaimLens"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-4 hover:text-[var(--text)]"
+            >
+              Open source on GitHub
+            </a>
           </p>
         </div>
       </footer>

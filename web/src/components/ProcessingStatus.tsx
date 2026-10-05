@@ -24,19 +24,36 @@ function stepState(run: RunDetail, stages: string[]): "done" | "active" | "todo"
 
 /**
  * Clean processing screen driven by real backend stage states.
- * Shows the ClaimLens agent checklist while a run is active.
+ * Shows the ClaimLens agent checklist while a run is active, with a
+ * small focused lab motif (not the homepage beaker).
  */
 export default function ProcessingStatus({ run }: { run: RunDetail }) {
   return (
     <section aria-labelledby="audit-progress-heading" className="cl-surface flex flex-col gap-4 p-5">
-      <div>
-        <p className="cl-meta font-medium uppercase tracking-[0.12em]">ClaimLens agent</p>
-        <h2 id="audit-progress-heading" className="cl-h1 mt-1">
-          Auditing Your Paper
-        </h2>
-        <p className="cl-meta mt-1">
-          ClaimLens is analyzing your paper and running reproduction experiments.
-        </p>
+      <div className="flex items-center gap-3">
+        <svg viewBox="0 0 40 44" aria-hidden="true" className="lab-mini h-11 w-10 shrink-0">
+          <path
+            d="M15 4 h10 M17 4 v10 l-9 22 q-1 4 4 4 h16 q5 0 4 -4 l-9 -22 v-10"
+            fill="none"
+            stroke="var(--border)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M11 30 h18 l2 6 q1 4 -4 4 h-14 q-5 0 -4 -4 Z" fill="var(--accent-soft)" />
+          <circle cx="18" cy="34" r="1.6" className="lab-mini-bubble" />
+          <circle cx="23" cy="36" r="1.2" className="lab-mini-bubble lab-mini-b2" />
+          <circle cx="20" cy="37" r="1" className="lab-mini-bubble lab-mini-b3" />
+        </svg>
+        <div>
+          <p className="cl-meta font-medium uppercase tracking-[0.12em]">ClaimLens lab</p>
+          <h2 id="audit-progress-heading" className="cl-h1 mt-0.5">
+            Auditing Your Paper
+          </h2>
+          <p className="cl-meta mt-1">
+            ClaimLens is analyzing your paper and running reproduction experiments.
+          </p>
+        </div>
       </div>
       <div className="cl-progress" role="progressbar" aria-label="Audit progress">
         <span

@@ -12,7 +12,7 @@ import {
 import { countVerdicts, joinClaimRows } from "../lib/claims";
 import { useArtifact, useReportText, useRun } from "../hooks/useApi";
 import { useCodeTree } from "../hooks/useCode";
-import { claimCode, codeTreeKeys, codeZipUrl, isCodeWrittenEvent } from "../api/code";
+import { claimCode, codeTreeKeys, isCodeWrittenEvent } from "../api/code";
 import { useRunEvents } from "../hooks/useRunEvents";
 import { Button, EmptyState, ErrorState, LoadingState } from "../components/ui";
 import AuditHeader from "../components/AuditHeader";
@@ -28,6 +28,7 @@ import ReportView from "../components/ReportView";
 import TablesView from "../components/TablesView";
 import VerdictDrawer from "../components/VerdictDrawer";
 import VerdictSummary from "../components/VerdictSummary";
+import { ExperimentInspector, ReproducibilityCapsule, ProvenanceTrail } from "../components/lab";
 
 const PaperViewer = lazy(() => import("../components/PaperViewer"));
 
@@ -71,7 +72,7 @@ export default function RunPage() {
   const { events, connected, retries, complete } = useRunEvents(runId);
 
   const needResults =
-    finished || section === "overview" || section === "claims" || section === "evidence" || section === "experiments";
+    finished || section === "overview" || section === "claims" || section === "evidence" || section === "experiments" || section === "run-history" || section === "environment" || section === "parameters" || section === "provenance";
   const claimsQuery = useArtifact(runId, "claims", parseClaims, true);
   const verdictsQuery = useArtifact(runId, "verdicts", parseVerdicts, needResults);
   const evidenceQuery = useArtifact(runId, "evidence", parseEvidence, needResults);
@@ -388,16 +389,39 @@ export default function RunPage() {
 
           {section === "experiments" && (
             <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="cl-h2">Experiments</h2>
-                <a
-                  href={codeZipUrl(runId)}
-                  download
-                  className="cl-btn cl-btn-outline cl-btn-sm"
-                >
-                  Download code
-                </a>
-              </div>
+              {selectedRow ? (
+                <ExperimentInspector
+                  runId={runId}
+                  claimId={selectedRow.claim.id}
+                  evidence={
+                    evidenceQuery.data?.find((e) => e.claim_id === selectedRow.claim.id) ?? null
+                  }
+                  planItem={
+                    planQuery.data?.items.find((p) => p.claim_id === selectedRow.claim.id) ?? null
+                  }
+                  verdict={selectedRow.verdict ?? null}
+                />
+              ) : (
+                <>
+                  <ExperimentInspector
+                    runId={runId}
+                    claimId={null}
+                    evidence={null}
+                    planItem={null}
+                    verdict={null}
+                  />
+                  <EmptyState
+                    title="No claim selected."
+                    hint="Select a claim in the Claims section to see its experiment details."
+                  />
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Run history — full code iteration view */}
+          {section === "run-history" && (
+            <div className="flex flex-col gap-3">
               {selectedRow ? (
                 <CodeTab
                   runId={runId}
@@ -416,6 +440,108 @@ export default function RunPage() {
                   title="No claim selected."
                   hint="Select a claim in the Claims section first."
                 />
+              )}
+            </div>
+          )}
+
+          {/* Environment panel */}
+          {section === "environment" && (
+            <div className="flex flex-col gap-3">
+              <h2 className="cl-h2">Environment</h2>
+              <p className="cl-meta">Execution environment for sandboxed experiments.</p>
+              <div className="cl-surface p-4 flex flex-col gap-3">
+                {[
+                  { label: "Runtime",    value: "Python 3.11" },
+                  { label: "Framework",  value: "PyTorch" },
+                  { label: "Container",  value: "Docker" },
+                  { label: "GPU",        value: "CUDA (when available)" },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex items-center gap-3 border-b border-[var(--border)] pb-2 last:border-0 last:pb-0">
+                    <span className="cl-meta w-24 shrink-0">{label}</span>
+                    <span className="font-mono text-sm">{value}</span>
+                  </div>
+                ))}
+              </div>
+              <ReproducibilityCapsule
+                data
+                code
+                environment
+                parameters={!!(planQuery.data?.items.length)}
+                seed={false}
+                result={!!(evidenceQuery.data?.some((e) => e.measured_value != null))}
+              />
+            </div>
+          )}
+
+          {/* Parameters panel */}
+          {section === "parameters" && (
+            <div className="flex flex-col gap-3">
+              <h2 className="cl-h2">Parameters</h2>
+              <p className="cl-meta">Reproduction configuration from the backend plan.</p>
+              {planQuery.isLoading ? (
+                <LoadingState label="Loading plan…" />
+              ) : planQuery.isError || !planQuery.data ? (
+                <ErrorState
+                  title="Could not load parameters."
+                  message="The plan artifact is not ready yet."
+                  onRetry={() => void planQuery.refetch()}
+                />
+              ) : planItems.length === 0 ? (
+                <EmptyState title="No parameters yet." hint="Parameters appear once the plan stage finishes." />
+              ) : (
+                <ol className="flex flex-col gap-2">
+                  {planItems.map((item) => (
+                    <li key={item.claim_id} className="cl-surface p-3">
+                      <p className="cl-mono text-xs text-[var(--text-2)]">
+                        {item.claim_id} · scale ×{item.scale_factor}
+                      </p>
+                      <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-5 text-sm">
+                        {item.steps.map((step, i) => (
+                          <li key={i}>{step}</li>
+                        ))}
+                      </ul>
+                      {item.config && (
+                        <pre className="cl-mono mt-2 text-xs text-[var(--text-2)] overflow-auto bg-[var(--surface-2)] rounded p-2">
+                          {JSON.stringify(item.config, null, 2)}
+                        </pre>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {assumptions.length > 0 && (
+                <section aria-label="Assumptions" className="flex flex-col gap-2">
+                  <h3 className="text-sm font-semibold">Assumptions ({assumptions.length})</h3>
+                  <ul className="flex flex-col gap-2">
+                    {assumptions.map((a) => (
+                      <li key={a.id} className="cl-surface p-3 text-sm">
+                        <p className="font-medium">{a.detail}</p>
+                        <p className="cl-meta mt-0.5">
+                          Chose: {a.value_chosen}. {a.reason} ({a.confidence} confidence)
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+          )}
+
+          {/* Provenance panel */}
+          {section === "provenance" && (
+            <div className="flex flex-col gap-3">
+              <h2 className="cl-h2">Provenance</h2>
+              <p className="cl-meta">Experiment lineage — paper → claim → experiment → result → verdict.</p>
+              <ProvenanceTrail
+                runId={runId}
+                claimId={selectedRow?.claim.id}
+                filename={parsedQuery.data?.title ?? undefined}
+                demo={!selectedRow}
+              />
+              {!selectedRow && (
+                <p className="cl-meta text-sm">
+                  Select a claim in the Claims section to see full provenance.
+                </p>
               )}
             </div>
           )}
