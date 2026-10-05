@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import time
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -184,3 +186,31 @@ def test_unknown_run_and_artifact_404(client: TestClient) -> None:
     assert client.get(f"/api/runs/{run_id}/nope").status_code == 404
     assert client.get(f"/api/runs/{run_id}/../state").status_code in (404, 422)
     assert client.get("/api/runs/not-a-uuid").status_code == 404
+
+
+def test_code_zip_downloads_mock_code(client: TestClient, fixtures_dir: Path) -> None:
+    run_id = upload_pdf(client)
+    wait_for_done(client, run_id)
+    resp = client.get(f"/api/runs/{run_id}/code.zip")
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/zip"
+    assert f"{run_id}-code.zip" in resp.headers.get("content-disposition", "")
+    archive = zipfile.ZipFile(io.BytesIO(resp.content))
+    names = archive.namelist()
+    assert "c1/iter_1/train.py" in names
+    assert all(not name.startswith("/") and ".." not in name for name in names)
+    expected = (fixtures_dir / "code" / "c1" / "iter_1" / "train.py").read_bytes()
+    assert archive.read("c1/iter_1/train.py") == expected
+
+
+def test_code_zip_missing_code_404(mock_env: None, tmp_path: Path) -> None:
+    from claimlens.api.state import new_state, run_dir_for, write_state
+
+    config = ClaimLensConfig.from_env()
+    app = create_app(runs_root=tmp_path / "runs", config=config)
+    with TestClient(app) as test_client:
+        assert test_client.get(f"/api/runs/{'0' * 32}/code.zip").status_code == 404
+        run_id = "b" * 32
+        write_state(run_dir_for(tmp_path / "runs", run_id), new_state(run_id, "paper.pdf"))
+        resp = test_client.get(f"/api/runs/{run_id}/code.zip")
+        assert resp.status_code == 404

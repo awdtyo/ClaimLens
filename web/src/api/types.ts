@@ -151,6 +151,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/code.zip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Code Zip
+         * @description Download all generated code as a zip archive.
+         *
+         *     Entries come only from the server-side enumeration above
+         *     (``<claim_id>/iter_<n>/<name>``), never from user input, so
+         *     crafted paths cannot escape the run directory. Returns 404 when
+         *     the run has no generated code yet.
+         */
+        get: operations["get_run_code_zip_api_runs__run_id__code_zip_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/{artifact}": {
         parameters: {
             query?: never;
@@ -597,6 +622,37 @@ export interface operations {
                 claim_id: string;
                 iteration: number;
                 file_index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_code_zip_api_runs__run_id__code_zip_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
             };
             cookie?: never;
         };
