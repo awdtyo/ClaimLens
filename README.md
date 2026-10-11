@@ -1,6 +1,6 @@
-# ClaimLens
+# ClaimLens - Evidence grounded claim auditing.
 
-
+<img src="banner.png" alt="claimlens" width="1000" />
 ClaimLens audits a computer science research paper claim by claim.
 
 Given a paper PDF it extracts testable claims, plans a reproduction,
